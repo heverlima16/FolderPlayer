@@ -1,11 +1,184 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FolderPlayer</title>
+    <title>Reproductor FolderPlayer</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23a435f0'/><polygon points='35,25 35,75 75,50' fill='white'/></svg>">
+    <link rel="stylesheet" href="css/style.css">
 </head>
+
 <body>
-    
+    <div class="header">
+        <div class="header-left">
+            <div class="logo">FolderPlayer</div>
+            <div class="course-title" id="courseName">Sin curso cargado</div>
+            <div class="course-title" id="currentLesson"></div>
+        </div>
+        <div class="header-right">
+            <button class="header-btn" id="toggleSidebar">Contenido</button>
+            <button class="header-btn" id="loadFolder"><span class="material-icons">folder_open</span><span
+                    class="btn-text">Cargar Carpeta</span></button>
+            <button class="header-btn">⋮</button>
+        </div>
+    </div>
+
+    <input type="file" id="folderInput" webkitdirectory directory multiple>
+
+    <div class="main-container">
+        <div class="video-section">
+            <button class="nav-arrow left" id="prevLesson">‹</button>
+            <button class="nav-arrow right" id="nextLesson">›</button>
+
+            <div class="video-wrapper">
+                <div class="video-content" id="contentArea">
+                    <div class="placeholder-message">
+                        Carga una carpeta para empezar<br>
+                        <small style="color: #6a6f73;">Las subcarpetas serán módulos y los archivos serán clases</small>
+                    </div>
+                </div>
+                <div class="subtitle" id="subtitle"></div>
+            </div>
+
+            <div class="controls controls-overlay visible">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progressBar">
+                        <div class="progress-filled" id="progressFilled"></div>
+                        <div class="progress-preview" id="progressPreview">
+                            <div class="progress-preview-container">
+                                <canvas id="previewCanvas" width="160" height="90"></canvas>
+                                <div class="progress-preview-time" id="previewTime">0:00</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="controls-buttons">
+                    <button class="control-btn" id="playPauseBtn">
+                        <span class="material-icons">play_arrow</span>
+                    </button>
+                    <button class="control-btn" id="rewindBtn">
+                        <span class="material-icons">replay_10</span>
+                    </button>
+                    <button class="control-btn speed-btn" id="speedBtn">1x</button>
+                    <button class="control-btn" id="forwardBtn">
+                        <span class="material-icons">forward_10</span>
+                    </button>
+                    <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
+                    <button class="control-btn" id="volumeBtn">
+                        <span class="material-icons" id="volumeIcon">volume_up</span>
+                    </button>
+                    <!-- Control deslizante de volumen -->
+                    <input type="range" id="volumeSlider" min="0" max="100" value="100">
+                    <button class="control-btn" id="ccBtn">
+                        <span class="material-icons">subtitles</span>
+                    </button>
+                    <button class="control-btn" id="pipBtn">
+                        <span class="material-icons">picture_in_picture_alt</span>
+                    </button>
+                    <button class="control-btn" id="customPipBtn">
+                        <span class="material-icons">open_in_new</span>
+                    </button>
+                    <button class="control-btn" id="fullscreenBtn">
+                        <span class="material-icons">fullscreen</span>
+                    </button>
+                    <button class="control-btn" id="settingsBtn">
+                        <span class="material-icons">settings</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="settings-menu" id="settingsMenu">
+                <div class="settings-header">Configuración</div>
+                <div class="settings-item" id="autoplayMenuItem">
+                    <div class="settings-item-label">
+                        <span class="settings-item-icon"><span class="material-icons">play_circle_filled</span></span>
+                        <span>Reproducción Auto.</span>
+                    </div>
+                    <div class="toggle-switch" id="toggleSwitch">
+                        <div class="toggle-knob"></div>
+                    </div>
+                </div>
+                <div class="settings-item" id="themeMenuItem">
+                    <div class="settings-item-label">
+                        <span class="settings-item-icon"><span class="material-icons">palette</span></span>
+                        <span>Tema</span>
+                    </div>
+                    <span id="currentTheme">Sistema</span>
+                </div>
+                <div class="settings-submenu" id="themeSubmenu" style="display: none;">
+                    <div class="settings-submenu-item active" data-theme="system">Sistema</div>
+                    <div class="settings-submenu-item" data-theme="dark">Oscuro</div>
+                    <div class="settings-submenu-item" data-theme="light">Claro</div>
+                </div>
+                <div class="settings-item" id="speedMenuItem">
+                    <div class="settings-item-label">
+                        <span class="settings-item-icon"><span class="material-icons">speed</span></span>
+                        <span>Velocidad</span>
+                    </div>
+                    <span id="currentSpeed">1x</span>
+                </div>
+                <div class="settings-submenu" id="speedSubmenu" style="display: none;">
+                    <div class="settings-submenu-item" data-speed="0.5">0.5x</div>
+                    <div class="settings-submenu-item" data-speed="0.75">0.75x</div>
+                    <div class="settings-submenu-item active" data-speed="1">Normal</div>
+                    <div class="settings-submenu-item" data-speed="1.25">1.25x</div>
+                    <div class="settings-submenu-item" data-speed="1.5">1.5x</div>
+                    <div class="settings-submenu-item" data-speed="2">2x</div>
+                </div>
+            </div>
+
+            <div class="volume-slider-container" id="volumeSliderContainer">
+                <input type="range" min="0" max="100" value="100" class="volume-slider" id="volumeSlider">
+                <div class="volume-percentage" id="volumePercentage">100%</div>
+            </div>
+        </div>
+
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                Contenido del curso
+            </div>
+            <div class="sidebar-controls">
+                <button class="sidebar-btn" id="collapseAll">
+                    <span class="material-icons">unfold_less</span>
+                    Acoplar Todo
+                </button>
+                <button class="sidebar-btn" id="expandAll">
+                    <span class="material-icons">unfold_more</span>
+                    Desacoplar Todo
+                </button>
+            </div>
+            <div class="sidebar-content" id="sidebarContent">
+                <div style="padding: 20px; text-align: center; color: #6a6f73;">
+                    No hay contenido cargado
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Ventana flotante personalizada (Picture in Picture) -->
+    <div class="pip-overlay" id="pipOverlay">
+        <div class="pip-header" id="pipHeader">
+            <div class="pip-title" id="pipTitle">Video en ventana flotante</div>
+            <div class="pip-controls">
+                <button class="pip-control-btn" id="pipMinimize" title="Minimizar">
+                    <span class="material-icons">minimize</span>
+                </button>
+                <button class="pip-control-btn" id="pipClose" title="Cerrar">
+                    <span class="material-icons">close</span>
+                </button>
+            </div>
+        </div>
+        <div class="pip-video-container" id="pipVideoContainer"></div>
+        <div class="pip-resize-handle"></div>
+    </div>
+
+    <script src="js/script.js"></script>
+
+
 </body>
+
 </html>
