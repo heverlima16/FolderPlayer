@@ -70,6 +70,11 @@ const globalProgressFill   = document.getElementById("globalProgressFill");
 const globalProgressPct    = document.getElementById("globalProgressPct");
 const locateLessonBtn      = document.getElementById("locateLesson");
 const autoplayBtn          = document.getElementById("autoplayBtn");
+const pauseOverlay         = document.getElementById("pauseOverlay");
+const completeBtn          = document.getElementById("completeBtn");
+const rewatchBtn           = document.getElementById("rewatchBtn");
+const sidebarSearch        = document.getElementById("sidebarSearch");
+const sidebarSearchClear   = document.getElementById("sidebarSearchClear");
 
 // ══════════════════════════════════════════
 // PROGRESS PERSISTENCE
@@ -226,6 +231,8 @@ async function processFolder(files) {
 // RENDER SIDEBAR
 // ══════════════════════════════════════════
 function renderSidebar() {
+  // Si hay búsqueda activa, refrescar resultados en vez del árbol completo
+  if (searchQuery && searchQuery.trim()) { renderSearch(searchQuery); return; }
   sidebarContent.innerHTML = "";
 
   const r    = 11;
@@ -353,6 +360,108 @@ function updateGlobalProgress() {
   globalProgressFill.style.width = pct + "%";
   globalProgressPct.textContent  = pct + "%";
 }
+
+// ══════════════════════════════════════════
+// SIDEBAR SEARCH
+// ══════════════════════════════════════════
+let searchQuery = "";
+
+function escapeHtml(str) {
+  return str.replace(/[&<>"']/g, (c) =>
+    ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])
+  );
+}
+
+function highlightMatch(text, query) {
+  if (!query) return escapeHtml(text);
+  const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex   = new RegExp(`(${escaped})`, "gi");
+  return escapeHtml(text).replace(
+    new RegExp(`(${escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"),
+    (m) => `<span class="search-highlight">${m}</span>`
+  );
+}
+
+function renderSearch(query) {
+  sidebarContent.innerHTML = "";
+  const q = query.trim().toLowerCase();
+
+  if (!q) { renderSidebar(); return; }
+
+  // Construir mapa lessonIndex → moduleName
+  const moduleOf = {};
+  let off = 0;
+  courseData.modules.forEach((mod) => {
+    mod.lessons.forEach((_, i) => { moduleOf[off + i] = mod.name; });
+    off += mod.lessons.length;
+  });
+
+  const matches = allLessons
+    .map((lesson, idx) => ({ lesson, idx }))
+    .filter(({ lesson }) => lesson.name.toLowerCase().includes(q));
+
+  if (matches.length === 0) {
+    sidebarContent.innerHTML = `
+      <div class="search-results-empty">
+        <span class="material-icons-round" style="font-size:32px;opacity:.3;display:block;margin-bottom:8px">search_off</span>
+        Sin resultados para "<strong>${escapeHtml(query)}</strong>"
+      </div>`;
+    return;
+  }
+
+  matches.forEach(({ lesson, idx }) => {
+    const isActive = idx === currentLessonIndex;
+    const item = document.createElement("div");
+    item.className = `search-result-item${isActive ? " active" : ""}`;
+    item.innerHTML = `
+      <div class="search-result-icon">
+        <span class="material-icons-round">${getTypeIcon(lesson.type)}</span>
+      </div>
+      <div class="search-result-info">
+        <div class="search-result-name">${highlightMatch(lesson.name, query)}</div>
+        <div class="search-result-meta">${escapeHtml(moduleOf[idx] || "")}${lesson.duration ? " · " + lesson.duration : ""}</div>
+      </div>`;
+
+    item.addEventListener("click", () => {
+      loadLesson(idx);
+      if (lesson.type !== "video") {
+        completedLessons.add(idx);
+        updateGlobalProgress();
+      }
+      // Marcar activo visualmente sin limpiar la búsqueda
+      sidebarContent.querySelectorAll(".search-result-item").forEach((el) =>
+        el.classList.remove("active")
+      );
+      item.classList.add("active");
+    });
+
+    sidebarContent.appendChild(item);
+  });
+}
+
+sidebarSearch.addEventListener("input", () => {
+  searchQuery = sidebarSearch.value;
+  sidebarSearchClear.style.display = searchQuery ? "flex" : "none";
+  renderSearch(searchQuery);
+});
+
+sidebarSearch.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") clearSearch();
+});
+
+sidebarSearchClear.addEventListener("click", clearSearch);
+
+function clearSearch() {
+  sidebarSearch.value = "";
+  searchQuery = "";
+  sidebarSearchClear.style.display = "none";
+  renderSidebar();
+  sidebarSearch.focus();
+}
+
+// Redefinir renderSidebar para que respete una búsqueda activa
+const _renderSidebarOrig = renderSidebar;
+// (renderSearch ya llama a renderSidebar internamente cuando query vacío)
 
 // ══════════════════════════════════════════
 // COLLAPSE / EXPAND ALL
@@ -720,6 +829,7 @@ function loadLesson(index) {
 
   renderSidebar();
   updateNavigationButtons();
+  updateCompleteBtn();
 }
 
 // ══════════════════════════════════════════
@@ -729,7 +839,65 @@ function updatePlayButton() {
   const icon = playPauseBtn.querySelector(".material-icons-round");
   if (!icon) return;
   icon.textContent = isPlaying ? "pause" : "play_arrow";
+  pauseOverlay.classList.toggle("visible", !isPlaying && currentMedia !== null);
 }
+
+function updateCompleteBtn() {
+  if (currentLessonIndex < 0) return;
+  const isDone    = completedLessons.has(currentLessonIndex);
+  const isLast    = currentLessonIndex >= allLessons.length - 1;
+  const icon      = completeBtn.querySelector(".material-icons-round");
+  const label     = completeBtn.querySelector(".complete-btn-label");
+
+  completeBtn.classList.toggle("done", isDone);
+  icon.textContent  = isDone ? "check_circle" : "check_circle_outline";
+  label.textContent = isLast ? "Marcar completado" : "Completar y continuar";
+  completeBtn.title = isLast
+    ? "Marcar esta lección como completada"
+    : "Marcar como completada y pasar a la siguiente";
+}
+
+rewatchBtn.addEventListener("click", () => {
+  if (currentLessonIndex < 0) return;
+  const lesson = allLessons[currentLessonIndex];
+
+  // Quitar de completados
+  completedLessons.delete(currentLessonIndex);
+
+  // Limpiar progreso guardado del video
+  if (videoProgress[lesson.name]) {
+    delete videoProgress[lesson.name];
+    saveProgress();
+  }
+
+  // Reiniciar video al inicio
+  if (currentMedia && currentMedia.tagName === "VIDEO") {
+    currentMedia.currentTime = 0;
+    progressFilled.style.width = "0%";
+    if (progressBuffer) progressBuffer.style.width = "0%";
+    updateTimeDisplay();
+    currentMedia.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
+  }
+
+  renderSidebar();
+  updateGlobalProgress();
+  updateCompleteBtn();
+});
+
+completeBtn.addEventListener("click", () => {
+  if (currentLessonIndex < 0) return;
+
+  // Marcar como completado
+  completedLessons.add(currentLessonIndex);
+  renderSidebar();
+  updateGlobalProgress();
+  updateCompleteBtn();
+
+  // Si hay lección siguiente, avanzar
+  if (currentLessonIndex < allLessons.length - 1) {
+    loadLesson(currentLessonIndex + 1);
+  }
+});
 
 playPauseBtn.addEventListener("click", () => {
   if (!currentMedia) return;
