@@ -993,6 +993,9 @@ document.addEventListener("fullscreenchange", () => {
   }
 });
 
+// El dblclick en la barra de controles NO debe activar fullscreen
+controlsOverlay.addEventListener("dblclick", (e) => e.stopPropagation());
+
 videoSection.addEventListener("dblclick", () => toggleFullscreen());
 
 // ══════════════════════════════════════════

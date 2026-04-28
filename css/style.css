@@ -81,8 +81,8 @@ input[type="file"] { display: none; }
 .logo-icon {
   width: 32px; height: 32px;
   border-radius: 9px;
-  background: linear-gradient(140deg, #7c3aed 0%, #a855f7 60%, #c084fc 100%);
-  box-shadow: 0 2px 10px rgba(124,58,237,0.45), 0 0 0 1px rgba(255,255,255,0.08) inset;
+  background: linear-gradient(145deg, #4ade80 0%, #22c55e 100%);
+  box-shadow: 0 2px 10px rgba(74,222,128,0.4), 0 0 0 1px rgba(255,255,255,0.12) inset;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -92,16 +92,16 @@ input[type="file"] { display: none; }
 .logo-icon svg { width: 18px; height: 18px; }
 
 .logo-word {
-  font-size: 15px;
-  font-weight: 400;
-  letter-spacing: -0.2px;
-  color: var(--text2);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--green);
 }
 
 .logo-word-bold {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.4px;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
   color: var(--text);
 }
 
