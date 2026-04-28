@@ -1,460 +1,280 @@
-/**
- * ==============================
- * CONFIGURACIÓN GENERAL Y VARIABLES
- * ==============================
- */
-// Datos del curso y estado general
-let courseData = {
-  name: "", // Nombre del curso
-  modules: [], // Módulos del curso
-};
-let currentLessonIndex = -1; // Índice de la lección actual
-let allLessons = []; // Array de todas las lecciones
-
-// Variables de control de reproducción
-let isPlaying = false; // Estado de reproducción
-let currentMedia = null; // Elemento multimedia actual
-let playbackSpeed = localStorage.getItem("playbackSpeed")
-  ? parseFloat(localStorage.getItem("playbackSpeed"))
-  : 1; // Velocidad de reproducción
-let autoplay = localStorage.getItem("autoplay") === "true"; // Estado de reproducción automática
-
-// Variables de estado y preferencias
-let completedLessons = new Set(); // Registro de lecciones completadas
-let theme = "system"; // Tema visual actual
-let controlsVisible = true;
-let expandedModules = new Set(); // Conjunto de módulos expandidos
-
-// Funciones para acoplar/desacoplar todos los módulos
-function collapseAllModules() {
-  expandedModules.clear();
-  renderSidebar();
-}
-
-function expandAllModules() {
-  expandedModules.clear();
-  courseData.modules.forEach((_, index) => expandedModules.add(index));
-  renderSidebar();
-}
-
-// Agregar eventos a los botones de acoplar/desacoplar todo
-document
-  .getElementById("collapseAll")
-  .addEventListener("click", collapseAllModules);
-document
-  .getElementById("expandAll")
-  .addEventListener("click", expandAllModules);
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+let courseData          = { name: "", modules: [] };
+let currentLessonIndex  = -1;
+let allLessons          = [];
+let isPlaying           = false;
+let currentMedia        = null;
+let playbackSpeed       = localStorage.getItem("playbackSpeed")
+                          ? parseFloat(localStorage.getItem("playbackSpeed")) : 1;
+let autoplay            = localStorage.getItem("autoplay") === "true";
+let completedLessons    = new Set();
+let theme               = "system";
+let expandedModules     = new Set();
 let controlsTimeout;
-let controlsBtnTimeout; // timeout para ocultar los botones prev/next rápidamente
-let currentVolume = 100;
-let isMuted = false;
-let lastVolume = 100;
-let videoProgress = {}; // Almacena el progreso de cada video
-let isPipActive = false;
-let pipVideo = null;
+let controlsBtnTimeout;
+let currentVolume       = 100;
+let isMuted             = false;
+let lastVolume          = 100;
+let videoProgress       = {};
+let lastProgressSaveTime = 0;
+let isPipActive         = false;
+let pipVideo            = null;
+let currentBlobUrl      = null; // para revocar el blob URL del video activo
 
-/**
- * ==============================
- * REFERENCIAS DOM
- * ==============================
- */
-// Referencias de la interfaz principal
-const folderInput = document.getElementById("folderInput");
-const loadFolderBtn = document.getElementById("loadFolder");
-const toggleSidebarBtn = document.getElementById("toggleSidebar");
-const sidebar = document.getElementById("sidebar");
-const contentArea = document.getElementById("contentArea");
-const sidebarContent = document.getElementById("sidebarContent");
-const courseName = document.getElementById("courseName");
-const currentLessonEl = document.getElementById("currentLesson");
-const playPauseBtn = document.getElementById("playPauseBtn");
-const speedBtn = document.getElementById("speedBtn");
-const timeDisplay = document.getElementById("timeDisplay");
-const progressBar = document.getElementById("progressBar");
-const progressFilled = document.getElementById("progressFilled");
-const prevLessonBtn = document.getElementById("prevLesson");
-const nextLessonBtn = document.getElementById("nextLesson");
-const rewindBtn = document.getElementById("rewindBtn");
-const forwardBtn = document.getElementById("forwardBtn");
-const settingsBtn = document.getElementById("settingsBtn");
-const fullscreenBtn = document.getElementById("fullscreenBtn");
-const settingsMenu = document.getElementById("settingsMenu");
-const toggleSwitch = document.getElementById("toggleSwitch");
-const themeMenuItem = document.getElementById("themeMenuItem");
-const themeSubmenu = document.getElementById("themeSubmenu");
-const speedMenuItem = document.getElementById("speedMenuItem");
-const speedSubmenu = document.getElementById("speedSubmenu");
-const autoplayMenuItem = document.getElementById("autoplayMenuItem");
-const videoSection = document.querySelector(".video-section");
-const volumeBtn = document.getElementById("volumeBtn");
+// ══════════════════════════════════════════
+// DOM REFS
+// ══════════════════════════════════════════
+const folderInput          = document.getElementById("folderInput");
+const loadFolderBtn        = document.getElementById("loadFolder");
+const toggleSidebarBtn     = document.getElementById("toggleSidebar");
+const sidebar              = document.getElementById("sidebar");
+const contentArea          = document.getElementById("contentArea");
+const sidebarContent       = document.getElementById("sidebarContent");
+const courseName           = document.getElementById("courseName");
+const currentLessonEl      = document.getElementById("currentLesson");
+const headerSep            = document.getElementById("headerSep");
+const playPauseBtn         = document.getElementById("playPauseBtn");
+const speedBtn             = document.getElementById("speedBtn");
+const timeDisplay          = document.getElementById("timeDisplay");
+const progressBar          = document.getElementById("progressBar");
+const progressFilled       = document.getElementById("progressFilled");
+const progressBuffer       = document.getElementById("progressBuffer");
+const prevLessonBtn        = document.getElementById("prevLesson");
+const nextLessonBtn        = document.getElementById("nextLesson");
+const rewindBtn            = document.getElementById("rewindBtn");
+const forwardBtn           = document.getElementById("forwardBtn");
+const settingsBtn          = document.getElementById("settingsBtn");
+const fullscreenBtn        = document.getElementById("fullscreenBtn");
+const settingsMenu         = document.getElementById("settingsMenu");
+const toggleSwitch         = document.getElementById("toggleSwitch");
+const themeMenuItem        = document.getElementById("themeMenuItem");
+const themeSubmenu         = document.getElementById("themeSubmenu");
+const autoplayMenuItem     = document.getElementById("autoplayMenuItem");
+const videoSection         = document.querySelector(".video-section");
+const volumeBtn            = document.getElementById("volumeBtn");
 const volumeSliderContainer = document.getElementById("volumeSliderContainer");
-const volumeSlider = document.getElementById("volumeSlider");
-const volumePercentage = document.getElementById("volumePercentage");
-const pipBtn = document.getElementById("pipBtn");
-const customPipBtn = document.getElementById("customPipBtn");
-const pipOverlay = document.getElementById("pipOverlay");
-const pipVideoContainer = document.getElementById("pipVideoContainer");
-const pipTitle = document.getElementById("pipTitle");
-const pipClose = document.getElementById("pipClose");
-const pipMinimize = document.getElementById("pipMinimize");
-const pipHeader = document.getElementById("pipHeader");
+const volumeSlider         = document.getElementById("volumeSlider");
+const volumePercentage     = document.getElementById("volumePercentage");
+const pipBtn               = document.getElementById("pipBtn");
+const customPipBtn         = document.getElementById("customPipBtn");
+const pipOverlay           = document.getElementById("pipOverlay");
+const pipVideoContainer    = document.getElementById("pipVideoContainer");
+const pipTitle             = document.getElementById("pipTitle");
+const pipClose             = document.getElementById("pipClose");
+const pipMinimize          = document.getElementById("pipMinimize");
+const pipHeader            = document.getElementById("pipHeader");
+const controlsOverlay      = document.querySelector(".controls-overlay");
+const globalProgressFill   = document.getElementById("globalProgressFill");
+const globalProgressPct    = document.getElementById("globalProgressPct");
+const locateLessonBtn      = document.getElementById("locateLesson");
+const autoplayBtn          = document.getElementById("autoplayBtn");
 
-const controlsOverlay = document.querySelector(".controls-overlay");
-
-/**
- * ==============================
- * GESTIÓN DE PROGRESO
- * ==============================
- */
-// Cargar progreso guardado desde localStorage
+// ══════════════════════════════════════════
+// PROGRESS PERSISTENCE
+// ══════════════════════════════════════════
 function loadProgress() {
   const saved = localStorage.getItem("videoProgress");
   if (saved) {
-    try {
-      videoProgress = JSON.parse(saved);
-    } catch (e) {
-      videoProgress = {};
-      console.error("Error al cargar el progreso:", e);
-    }
+    try { videoProgress = JSON.parse(saved); }
+    catch (e) { videoProgress = {}; }
   }
 }
 
-// Guardar progreso en localStorage
 function saveProgress() {
-  try {
-    localStorage.setItem("videoProgress", JSON.stringify(videoProgress));
-  } catch (e) {
-    console.error("Error al guardar el progreso:", e);
-  }
+  try { localStorage.setItem("videoProgress", JSON.stringify(videoProgress)); }
+  catch (e) {}
 }
 
-// Inicializar progreso al cargar
 loadProgress();
 
-/**
- * ==============================
- * GESTIÓN DE CARGA DE ARCHIVOS
- * ==============================
- */
-// Manejador de clic para el botón de carga
-loadFolderBtn.addEventListener("click", () => {
-  folderInput.click();
-});
+// ══════════════════════════════════════════
+// FOLDER LOADING
+// ══════════════════════════════════════════
+loadFolderBtn.addEventListener("click", () => folderInput.click());
 
-// Manejador de cambio para el input de archivos
 folderInput.addEventListener("change", async (e) => {
   const files = Array.from(e.target.files);
-  if (files.length === 0) {
-    console.log("No se seleccionaron archivos");
-    return;
-  }
-
+  if (files.length === 0) return;
   await processFolder(files);
 });
-/**
- * ==============================
- * PROCESAMIENTO DE CARPETAS Y ARCHIVOS
- * ==============================
- */
-function processFolder(files) {
-  const structure = {};
-  const rootPath = files[0].webkitRelativePath.split("/")[0];
 
-  // Configuración de tipos de archivos
-  const validExtensions = [
-    // Archivos de video
-    "mp4",
-    "webm",
-    "ogg",
-    "mov",
-    "avi",
-    // Documentos
-    "pdf",
-    // Código fuente
-    "js",
-    "html",
-    "css",
-    "py",
-    "java",
-    "cpp",
-    "sql",
-    "c",
-    // Texto y documentación
-    "txt",
-    "md",
-  ];
-  const excludedFiles = [".DS_Store", "Thumbs.db", ".gitignore"];
+// ══════════════════════════════════════════
+// FILE TYPE HELPERS
+// ══════════════════════════════════════════
+const VIDEO_EXTS = [
+  "mp4","webm","ogg","mov","avi",
+  "mkv","m4v","3gp","3g2","ts","mts","m2ts",
+  "mpg","mpeg","m2v","mp2","mpe","mpv",
+  "wmv","asf","flv","f4v","vob","ogv",
+  "dv","qt","divx","xvid","rmvb","rm",
+];
 
-  files.forEach((file) => {
-    const ext = file.name.split(".").pop().toLowerCase();
+const MIME_MAP = {
+  mp4:"video/mp4", m4v:"video/mp4", f4v:"video/mp4",
+  webm:"video/webm",
+  ogg:"video/ogg", ogv:"video/ogg",
+  mov:"video/quicktime", qt:"video/quicktime",
+  avi:"video/x-msvideo",
+  mkv:"video/x-matroska",
+  wmv:"video/x-ms-wmv", asf:"video/x-ms-asf",
+  flv:"video/x-flv",
+  "3gp":"video/3gpp", "3g2":"video/3gpp2",
+  ts:"video/mp2t", mts:"video/mp2t", m2ts:"video/mp2t",
+  mpg:"video/mpeg", mpeg:"video/mpeg", m2v:"video/mpeg", mpe:"video/mpeg", mpv:"video/mpeg",
+  vob:"video/dvd",
+  dv:"video/x-dv",
+};
 
-    // Excluir archivos con extensiones no válidas o archivos como .DS_Store
-    if (!validExtensions.includes(ext) || excludedFiles.includes(file.name)) {
-      return; // Salir si el archivo no es válido
-    }
-
-    const pathParts = file.webkitRelativePath.split("/");
-    pathParts.shift();
-
-    if (pathParts.length === 1) {
-      if (!structure["_root"]) structure["_root"] = [];
-      structure["_root"].push(file);
-    } else {
-      const folderName = pathParts[0];
-      if (!structure[folderName]) structure[folderName] = [];
-      structure[folderName].push(file);
-    }
-  });
-
-  courseData.name = rootPath;
-  courseData.modules = [];
-  allLessons = [];
-
-  Object.keys(structure)
-    .sort()
-    .forEach((folderName, index) => {
-      const moduleFiles = structure[folderName];
-      const module = {
-        name: folderName === "_root" ? "Archivos principales" : folderName,
-        lessons: moduleFiles.map((file) => ({
-          name: file.name,
-          file: file,
-          duration: "0:00",
-          type: getFileType(file.name),
-        })),
-      };
-
-      courseData.modules.push(module);
-      allLessons.push(...module.lessons);
-    });
-
-  renderSidebar();
-  courseName.textContent = courseData.name;
-
-  if (allLessons.length > 0) {
-    loadLesson(0);
-  }
+function getVideoMime(filename) {
+  const ext = filename.split(".").pop().toLowerCase();
+  return MIME_MAP[ext] || "video/*";
 }
 
-// Función para obtener el tipo de archivo
 function getFileType(filename) {
   const ext = filename.split(".").pop().toLowerCase();
-  const videoExts = ["mp4", "webm", "ogg", "mov", "avi"];
-  const imageExts = ["jpg", "jpeg", "png", "gif", "webp", "svg"];
-  const codeExts = [
-    "js",
-    "html",
-    "css",
-    "json",
-    "py",
-    "java",
-    "cpp",
-    "sql",
-    "c",
-    "txt",
-    "md",
-  ];
-  const pdfExts = ["pdf"];
-
-  if (videoExts.includes(ext)) return "video";
-  if (imageExts.includes(ext)) return "image";
-  if (codeExts.includes(ext)) return "code";
-  if (pdfExts.includes(ext)) return "pdf";
+  if (VIDEO_EXTS.includes(ext))                                 return "video";
+  if (["jpg","jpeg","png","gif","webp","svg"].includes(ext))    return "image";
+  if (["js","html","css","json","py","java","cpp","sql","c","txt","md"].includes(ext)) return "code";
+  if (ext === "pdf")                                             return "pdf";
   return "unknown";
 }
 
-async function processFolder(files) {
-  const structure = {};
-  const rootPath = files[0].webkitRelativePath.split("/")[0];
+function getTypeIcon(type) {
+  const map = { video:"play_circle", image:"image", code:"code", pdf:"description", unknown:"attach_file" };
+  return map[type] || "attach_file";
+}
 
-  // Configuración de tipos de archivos
-  const validExtensions = [
-    // Archivos de video
-    "mp4",
-    "webm",
-    "ogg",
-    "mov",
-    "avi",
-    // Documentos
-    "pdf",
-    // Código fuente
-    "js",
-    "html",
-    "css",
-    "py",
-    "java",
-    "cpp",
-    "c",
-    // Texto y documentación
-    "txt",
-    "md",
-  ];
-  const excludedFiles = [".DS_Store", "Thumbs.db", ".gitignore"];
+function getLanguageName(ext) {
+  const languages = {
+    js:"JavaScript", py:"Python", java:"Java", cpp:"C++", c:"C", cs:"C#",
+    html:"HTML", css:"CSS", sql:"SQL", json:"JSON", xml:"XML", php:"PHP",
+    rb:"Ruby", go:"Go", rs:"Rust", ts:"TypeScript", jsx:"React JSX", tsx:"React TSX",
+    md:"Markdown", txt:"Text", sh:"Shell", bash:"Bash", yml:"YAML", yaml:"YAML",
+  };
+  return languages[ext] || ext.toUpperCase();
+}
+
+// ══════════════════════════════════════════
+// PROCESS FOLDER
+// ══════════════════════════════════════════
+async function processFolder(files) {
+  const structure  = {};
+  const rootPath   = files[0].webkitRelativePath.split("/")[0];
+  const validExts  = [...VIDEO_EXTS, "pdf","js","html","css","py","java","cpp","c","txt","md","jpg","jpeg","png","gif","webp","svg"];
+  const excluded   = [".DS_Store","Thumbs.db",".gitignore"];
 
   files.forEach((file) => {
     const ext = file.name.split(".").pop().toLowerCase();
-
-    if (!validExtensions.includes(ext) || excludedFiles.includes(file.name)) {
-      return;
-    }
-
-    const pathParts = file.webkitRelativePath.split("/");
-    pathParts.shift();
-
-    if (pathParts.length === 1) {
+    if (!validExts.includes(ext) || excluded.includes(file.name)) return;
+    const parts = file.webkitRelativePath.split("/");
+    parts.shift();
+    if (parts.length === 1) {
       if (!structure["_root"]) structure["_root"] = [];
       structure["_root"].push(file);
     } else {
-      const folderName = pathParts[0];
-      if (!structure[folderName]) structure[folderName] = [];
-      structure[folderName].push(file);
+      const folder = parts[0];
+      if (!structure[folder]) structure[folder] = [];
+      structure[folder].push(file);
     }
   });
 
-  courseData.name = rootPath;
+  courseData.name    = rootPath;
   courseData.modules = [];
-  allLessons = [];
+  allLessons         = [];
 
-  // Función para ordenar de forma natural (números y letras)
   function naturalSort(a, b) {
-    return a.name.localeCompare(b.name, undefined, {
-      numeric: true,
-      sensitivity: "base",
-    });
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
   }
 
-  // Función para obtener duración de video
   function getVideoDuration(file) {
     return new Promise((resolve) => {
       const video = document.createElement("video");
       video.preload = "metadata";
-      video.onloadedmetadata = function () {
-        window.URL.revokeObjectURL(video.src);
-        resolve(formatTime(video.duration));
-      };
-      video.onerror = function () {
-        resolve("0:00");
-      };
-      video.src = URL.createObjectURL(file);
+      const objectUrl = URL.createObjectURL(file);
+      video.onloadedmetadata = () => { URL.revokeObjectURL(objectUrl); resolve(formatTime(video.duration)); };
+      video.onerror         = () => { URL.revokeObjectURL(objectUrl); resolve(""); };
+      video.src = objectUrl;
     });
   }
 
-  // Procesar módulos
   for (const folderName of Object.keys(structure).sort()) {
     const moduleFiles = structure[folderName].sort(naturalSort);
     const lessons = [];
 
     for (const file of moduleFiles) {
       const fileType = getFileType(file.name);
-      let duration = "";
-
-      // Obtener duración solo para videos
-      if (fileType === "video") {
-        duration = await getVideoDuration(file);
-      }
-
-      lessons.push({
-        name: file.name,
-        file: file,
-        duration: duration,
-        type: fileType,
-      });
+      const duration = fileType === "video" ? await getVideoDuration(file) : "";
+      lessons.push({ name: file.name, file, duration, type: fileType });
     }
 
     const module = {
       name: folderName === "_root" ? "Archivos principales" : folderName,
-      lessons: lessons,
+      lessons,
     };
-
     courseData.modules.push(module);
     allLessons.push(...module.lessons);
   }
 
-  renderSidebar();
   courseName.textContent = courseData.name;
-
-  if (allLessons.length > 0) {
-    loadLesson(0);
-  }
+  renderSidebar();
+  if (allLessons.length > 0) loadLesson(0);
 }
 
+// ══════════════════════════════════════════
+// RENDER SIDEBAR
+// ══════════════════════════════════════════
 function renderSidebar() {
   sidebarContent.innerHTML = "";
 
+  const r    = 11;
+  const circ = 2 * Math.PI * r; // ~69.115
+
+  // Calcular qué módulo contiene la lección activa
+  let activeModuleIndex = -1;
+  {
+    let off = 0;
+    for (let i = 0; i < courseData.modules.length; i++) {
+      if (currentLessonIndex >= off && currentLessonIndex < off + courseData.modules[i].lessons.length) {
+        activeModuleIndex = i; break;
+      }
+      off += courseData.modules[i].lessons.length;
+    }
+  }
+
+  let globalOffset = 0;
+
   courseData.modules.forEach((module, moduleIndex) => {
-    const sectionHeader = document.createElement("div");
-    sectionHeader.className = "section-header";
-    sectionHeader.innerHTML = `
-            <div>
-                <div>${module.name}</div>
-                <span class="section-info">${module.lessons.length} clases</span>
-            </div>
-            <span class="section-toggle">▼</span>
-        `;
+    // ── Count completed in this module ──
+    const lessonStart       = globalOffset;
+    const completedInModule = module.lessons.filter((_, i) => completedLessons.has(lessonStart + i)).length;
+    const modulePct         = module.lessons.length > 0 ? completedInModule / module.lessons.length : 0;
+    const ringOffset        = circ * (1 - modulePct);
 
-    const lessonsContainer = document.createElement("div");
-    lessonsContainer.className = "section-lessons"; // Por defecto colapsado, sin 'expanded'
+    // ── Module header ──
+    const isExpanded = expandedModules.has(moduleIndex);
 
-    module.lessons.forEach((lesson, lessonIndex) => {
-      const globalIndex = allLessons.indexOf(lesson);
-      const lessonItem = document.createElement("div");
-      lessonItem.className = "lesson-item";
-      if (completedLessons.has(globalIndex)) {
-        lessonItem.classList.add("completed");
-      }
-      if (globalIndex === currentLessonIndex) {
-        lessonItem.classList.add("active");
-      }
+    const moduleEl = document.createElement("div");
+    moduleEl.className = "module";
 
-      // Agregar un botón "Recurso" si el archivo no es video
-      let resourceBtn = "";
-      let progressBar = ""; // Se inicializa la variable para la barra de progreso
-      let lessonDuration = ""; // Variable para el icono del tipo de archivo
+    const headerEl = document.createElement("div");
+    headerEl.className = `module-header${moduleIndex === activeModuleIndex ? " active-module" : ""}`;
+    headerEl.innerHTML = `
+      <span class="material-icons-round module-chevron${isExpanded ? " open" : ""}">chevron_right</span>
+      <div class="module-info">
+        <div class="module-name">${module.name}</div>
+        <div class="module-meta">${completedInModule}/${module.lessons.length} clases</div>
+      </div>
+      <div class="module-progress-ring">
+        <svg width="28" height="28" viewBox="0 0 28 28">
+          <circle class="ring-bg"   cx="14" cy="14" r="${r}" stroke-dasharray="${circ}" stroke-dashoffset="0"/>
+          <circle class="ring-fill" cx="14" cy="14" r="${r}" stroke-dasharray="${circ}" stroke-dashoffset="${ringOffset}"/>
+        </svg>
+      </div>
+    `;
 
-      if (lesson.type !== "video") {
-        resourceBtn = `
-                    <button class="resource-btn" onclick="downloadResource(${globalIndex})">Descargar Recurso</button>
-                `;
-        lessonDuration = ""; // No mostrar el ícono de tipo archivo si no es video
-      } else {
-        // Solo agregar la barra de progreso y el ícono de tipo archivo para videos
-        progressBar = `
-                    <div class="lesson-progress">
-                        <div class="lesson-progress-filled" style="width: ${getVideoProgress(
-                          lesson.name
-                        )}%"></div>
-                    </div>
-                `;
-        // lessonDuration = `${getFileIcon(lesson.type)} ${lesson.type}`; // Mostrar ícono y tipo de archivo solo para videos
-        lessonDuration = `${getFileIcon(lesson.type)} ${
-          lesson.duration || lesson.type
-        }`; // Mostrar ícono y tipo de archivo solo para videos
-      }
-
-      lessonItem.innerHTML = `
-                <div class="checkbox"></div>
-                <div class="lesson-info">
-                    <div class="lesson-name">${lesson.name}</div>
-                    <div class="lesson-duration">${lessonDuration}</div>
-                    ${progressBar}
-                    ${resourceBtn}
-                </div>
-            `;
-
-      lessonItem.addEventListener("click", () => {
-        loadLesson(globalIndex);
-
-        // Marcar como completado si NO es video
-        if (lesson.type !== "video") {
-          completedLessons.add(globalIndex);
-          renderSidebar();
-        }
-      });
-
-      lessonsContainer.appendChild(lessonItem);
-    });
-
-    sectionHeader.addEventListener("click", () => {
+    headerEl.addEventListener("click", () => {
       if (expandedModules.has(moduleIndex)) {
         expandedModules.delete(moduleIndex);
       } else {
@@ -463,211 +283,391 @@ function renderSidebar() {
       renderSidebar();
     });
 
-    // Actualizar estado visual basado en expandedModules
-    const isExpanded = expandedModules.has(moduleIndex);
-    lessonsContainer.classList.toggle("expanded", isExpanded);
-    sectionHeader.querySelector(".section-toggle").textContent = isExpanded
-      ? "▼"
-      : "▶";
+    // ── Lessons list ──
+    const lessonsEl = document.createElement("div");
+    lessonsEl.className = `lessons${isExpanded ? " open" : ""}`;
 
-    sidebarContent.appendChild(sectionHeader);
-    sidebarContent.appendChild(lessonsContainer);
+    module.lessons.forEach((lesson, lessonIndex) => {
+      const globalIndex = lessonStart + lessonIndex;
+      const isActive    = globalIndex === currentLessonIndex;
+      const isDone      = completedLessons.has(globalIndex);
+
+      const itemEl = document.createElement("div");
+      itemEl.className = `lesson-item${isDone ? " completed" : ""}${isActive ? " active" : ""}`;
+
+      // Number badge (checkmark if done, active accent if current)
+      const numContent = isDone
+        ? `<span class="material-icons-round" style="font-size:12px">check</span>`
+        : String(lessonIndex + 1);
+
+      // Progress bar (videos only)
+      const progressEl = lesson.type === "video" ? `
+        <div class="lesson-progress">
+          <div class="lesson-progress-fill" style="width:${getVideoProgress(lesson.name)}%"></div>
+        </div>` : "";
+
+      // Resource button (non-video)
+      const resourceBtn = lesson.type !== "video" ? `
+        <button class="resource-btn" onclick="downloadResource(${globalIndex})">Descargar</button>` : "";
+
+      itemEl.innerHTML = `
+        <div class="lesson-num">${numContent}</div>
+        <div class="lesson-info">
+          <div class="lesson-title">${lesson.name}</div>
+          <div class="lesson-dur">${lesson.duration || (lesson.type !== "video" ? lesson.type : "")}</div>
+          ${progressEl}
+          ${resourceBtn}
+        </div>
+        <span class="material-icons-round lesson-type-icon">${getTypeIcon(lesson.type)}</span>
+      `;
+
+      itemEl.addEventListener("click", () => {
+        loadLesson(globalIndex);
+        if (lesson.type !== "video") {
+          completedLessons.add(globalIndex);
+          renderSidebar();
+          updateGlobalProgress();
+        }
+      });
+
+      lessonsEl.appendChild(itemEl);
+    });
+
+    moduleEl.appendChild(headerEl);
+    moduleEl.appendChild(lessonsEl);
+    sidebarContent.appendChild(moduleEl);
+
+    globalOffset += module.lessons.length;
   });
+
+  updateGlobalProgress();
 }
 
-// Función para manejar la descarga de recursos
+// ══════════════════════════════════════════
+// GLOBAL PROGRESS
+// ══════════════════════════════════════════
+function updateGlobalProgress() {
+  const total = allLessons.length;
+  if (total === 0) { globalProgressFill.style.width = "0%"; globalProgressPct.textContent = "0%"; return; }
+  const pct = Math.round((completedLessons.size / total) * 100);
+  globalProgressFill.style.width = pct + "%";
+  globalProgressPct.textContent  = pct + "%";
+}
+
+// ══════════════════════════════════════════
+// COLLAPSE / EXPAND ALL
+// ══════════════════════════════════════════
+document.getElementById("collapseAll").addEventListener("click", () => {
+  expandedModules.clear();
+  renderSidebar();
+});
+
+document.getElementById("expandAll").addEventListener("click", () => {
+  expandedModules.clear();
+  courseData.modules.forEach((_, i) => expandedModules.add(i));
+  renderSidebar();
+});
+
+// ══════════════════════════════════════════
+// LOCATE CURRENT LESSON
+// ══════════════════════════════════════════
+locateLessonBtn.addEventListener("click", () => {
+  if (currentLessonIndex < 0) return;
+
+  // Find which module the current lesson is in and expand it
+  let offset = 0;
+  for (let i = 0; i < courseData.modules.length; i++) {
+    const mod = courseData.modules[i];
+    if (currentLessonIndex < offset + mod.lessons.length) {
+      expandedModules.add(i);
+      break;
+    }
+    offset += mod.lessons.length;
+  }
+
+  renderSidebar();
+
+  // Scroll to active item
+  const activeItem = sidebarContent.querySelector(".lesson-item.active");
+  if (activeItem) {
+    activeItem.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+});
+
+// ══════════════════════════════════════════
+// VIDEO PROGRESS
+// ══════════════════════════════════════════
+function getVideoProgress(videoName) {
+  return videoProgress[videoName] ? Math.round(videoProgress[videoName].progress) : 0;
+}
+
+function updateVideoProgress(videoName, currentTime, duration) {
+  if (!videoName || !duration) return;
+
+  const progress = (currentTime / duration) * 100;
+  videoProgress[videoName] = { currentTime, duration, progress, lastUpdate: Date.now() };
+
+  // Update sidebar bar without full re-render
+  sidebarContent.querySelectorAll(".lesson-item").forEach((item) => {
+    const titleEl = item.querySelector(".lesson-title");
+    if (titleEl && titleEl.textContent === videoName) {
+      const bar = item.querySelector(".lesson-progress-fill");
+      if (bar) bar.style.width = Math.round(progress) + "%";
+    }
+  });
+
+  // Throttled save
+  const now = Date.now();
+  if (now - lastProgressSaveTime > 5000) {
+    saveProgress();
+    lastProgressSaveTime = now;
+  }
+}
+
+// ══════════════════════════════════════════
+// DOWNLOAD RESOURCE
+// ══════════════════════════════════════════
 function downloadResource(index) {
   const lesson = allLessons[index];
   const url = URL.createObjectURL(lesson.file);
-
   const a = document.createElement("a");
-  a.href = url;
-  a.download = lesson.name;
+  a.href = url; a.download = lesson.name;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
 
-function getFileIcon(type) {
-  const icons = {
-    video: "▶️",
-    image: "🖼️",
-    code: "📄",
-    pdf: "📕",
-    unknown: "📎",
-  };
-  return icons[type] || icons.unknown;
+// ══════════════════════════════════════════
+// COPY CODE
+// ══════════════════════════════════════════
+function copyCodeToClipboard(button) {
+  const container = button.closest(".code-display");
+  const text      = container.dataset.code;
+  navigator.clipboard.writeText(text).then(() => {
+    const copyText = button.querySelector(".copy-text");
+    const icon     = button.querySelector(".material-icons-round");
+    button.classList.add("copied");
+    copyText.textContent = "Copiado";
+    icon.textContent     = "check";
+    setTimeout(() => {
+      button.classList.remove("copied");
+      copyText.textContent = "Copiar";
+      icon.textContent     = "content_copy";
+    }, 2000);
+  }).catch(() => {});
 }
 
-function getVideoProgress(videoName) {
-  if (videoProgress[videoName]) {
-    return Math.round(videoProgress[videoName].progress);
-  }
-  return 0;
-}
+// ══════════════════════════════════════════
+// TS TRANSMUXER (MPEG-TS → MP4 vía MSE + mux.js)
+// ══════════════════════════════════════════
+function playTsWithMSE(file, video) {
+  return new Promise((resolve, reject) => {
+    if (!window.muxjs) { reject(new Error("mux.js no disponible")); return; }
 
-/**
- * ==============================
- * GESTIÓN DE PROGRESO DE VIDEO
- * ==============================
- */
-function updateVideoProgress(videoName, currentTime, duration) {
-  if (!videoName || !duration) return;
+    const mediaSource = new MediaSource();
+    const mseUrl = URL.createObjectURL(mediaSource);
+    currentBlobUrl = mseUrl;
+    video.src = mseUrl;
 
-  // Calcular y almacenar el progreso
-  const progress = (currentTime / duration) * 100;
-  videoProgress[videoName] = {
-    currentTime: currentTime,
-    duration: duration,
-    progress: progress,
-    lastUpdate: Date.now(),
-  };
+    mediaSource.addEventListener("sourceopen", () => {
+      URL.revokeObjectURL(mseUrl);
 
-  function updateLessonProgressBar(videoName, progress) {
-    // Buscar la lección en el DOM y actualizar solo su barra de progreso
-    const lessonItems = document.querySelectorAll(".lesson-item");
-    lessonItems.forEach((item) => {
-      const lessonNameEl = item.querySelector(".lesson-name");
-      if (lessonNameEl && lessonNameEl.textContent === videoName) {
-        const progressBar = item.querySelector(".lesson-progress-filled");
-        if (progressBar) {
-          progressBar.style.width = Math.round(progress) + "%";
-        }
+      const transmuxer = new muxjs.mp4.Transmuxer({ keepOriginalTimestamps: true });
+      const queue      = [];
+      let appending    = false;
+      let flushDone    = false;
+      let sb;
+
+      // Intentar con los codecs más comunes para H.264 + AAC
+      const codecCandidates = [
+        'video/mp4; codecs="avc1.42E01E,mp4a.40.2"',
+        'video/mp4; codecs="avc1.64001f,mp4a.40.2"',
+        'video/mp4; codecs="avc1.42E01E"',
+        'video/mp4',
+      ];
+
+      for (const codec of codecCandidates) {
+        try { sb = mediaSource.addSourceBuffer(codec); break; } catch (_) {}
       }
+
+      if (!sb) { reject(new Error("No SourceBuffer compatible")); return; }
+
+      function tryAppend() {
+        if (appending || queue.length === 0) return;
+        appending = true;
+        try { sb.appendBuffer(queue.shift()); }
+        catch (_) { appending = false; }
+      }
+
+      sb.addEventListener("updateend", () => {
+        appending = false;
+        if (queue.length > 0) { tryAppend(); return; }
+        if (flushDone) {
+          try { mediaSource.endOfStream(); } catch (_) {}
+        }
+      });
+
+      transmuxer.on("data", (segment) => {
+        const combined = new Uint8Array(segment.initSegment.byteLength + segment.data.byteLength);
+        combined.set(segment.initSegment, 0);
+        combined.set(segment.data, segment.initSegment.byteLength);
+        queue.push(combined.buffer);
+        tryAppend();
+      });
+
+      transmuxer.on("done", () => {
+        flushDone = true;
+        if (!appending && queue.length === 0) {
+          try { mediaSource.endOfStream(); } catch (_) {}
+        }
+      });
+
+      // Leer el archivo en chunks de 512 KB sin cargar todo en memoria
+      (async () => {
+        const CHUNK = 512 * 1024;
+        let offset  = 0;
+        try {
+          while (offset < file.size) {
+            const buf = await file.slice(offset, offset + CHUNK).arrayBuffer();
+            transmuxer.push(new Uint8Array(buf));
+            offset += CHUNK;
+            await new Promise(r => setTimeout(r, 0)); // yield al UI
+          }
+          transmuxer.flush();
+          resolve();
+        } catch (e) { reject(e); }
+      })();
     });
-  }
 
-  // Actualizar solo la barra de progreso específica sin redibujar todo
-  updateLessonProgressBar(videoName, progress);
-
-  // Guardar progreso cada 5 segundos en lugar de cada frame
-  if (!this.lastSaveTime || Date.now() - this.lastSaveTime > 5000) {
-    saveProgress();
-    this.lastSaveTime = Date.now();
-  }
+    mediaSource.addEventListener("sourceended",  () => {});
+    mediaSource.addEventListener("sourceclosed",  () => {});
+  });
 }
-/**
- * ==============================
- * CARGA Y REPRODUCCIÓN DE LECCIONES
- * ==============================
- */
-function loadLesson(index) {
-  // Validar índice
-  if (index < 0 || index >= allLessons.length) {
-    console.warn("Índice de lección inválido:", index);
-    return;
-  }
 
-  // Actualizar estado
+// ══════════════════════════════════════════
+// LOAD LESSON
+// ══════════════════════════════════════════
+let previewSeekVideo = null;
+
+function resetPreviewVideo() {
+  if (previewSeekVideo) { previewSeekVideo.src = ""; previewSeekVideo = null; }
+}
+
+function loadLesson(index) {
+  if (index < 0 || index >= allLessons.length) return;
+
   currentLessonIndex = index;
   const lesson = allLessons[index];
 
-  currentLessonEl.textContent = `: ${lesson.name}`;
+  // Update header
+  currentLessonEl.textContent = lesson.name;
+  if (headerSep) headerSep.style.display = "inline";
 
   contentArea.innerHTML = "";
   if (currentMedia) {
     if (currentMedia.pause) currentMedia.pause();
     currentMedia = null;
   }
+  if (currentBlobUrl) {
+    URL.revokeObjectURL(currentBlobUrl);
+    currentBlobUrl = null;
+  }
+  resetPreviewVideo();
   isPlaying = false;
   updatePlayButton();
 
   const reader = new FileReader();
 
   if (lesson.type === "video") {
-    reader.onload = (e) => {
-      const video = document.createElement("video");
-      video.src = e.target.result;
-      video.controls = false;
+    const ext   = lesson.name.split(".").pop().toLowerCase();
+    const video = document.createElement("video");
+    video.controls = false;
 
-      video.addEventListener("loadedmetadata", () => {
-        updateTimeDisplay();
-        // Guardar duración del video
-        const lesson = allLessons[index];
-        lesson.duration = formatTime(video.duration);
-        renderSidebar();
-
-        // Restaurar progreso guardado
-        if (videoProgress[lesson.name]) {
-          const savedTime = videoProgress[lesson.name].currentTime;
-          if (savedTime > 0 && savedTime < video.duration - 5) {
-            video.currentTime = savedTime;
-          }
-        }
+    // Archivos .ts requieren transmuxing a MP4 vía MSE
+    if (ext === "ts" || ext === "mts" || ext === "m2ts") {
+      playTsWithMSE(lesson.file, video).catch(() => {
+        // Fallback: intentar reproducción directa si MSE falla
+        if (currentMedia !== video) return;
+        const fallbackUrl = URL.createObjectURL(lesson.file);
+        currentBlobUrl    = fallbackUrl;
+        video.src         = fallbackUrl;
       });
+    } else {
+      const objectUrl = URL.createObjectURL(lesson.file);
+      currentBlobUrl  = objectUrl;
+      video.src       = objectUrl;
+    }
 
-      let lastProgressUpdate = 0;
+    video.addEventListener("loadedmetadata", () => {
+      updateTimeDisplay();
+      lesson.duration = formatTime(video.duration);
+      renderSidebar();
 
-      video.addEventListener("timeupdate", () => {
-        updateProgress();
-
-        // Actualizar la barra de progreso cada 500ms en lugar de cada frame
-        const now = Date.now();
-        if (now - lastProgressUpdate > 500) {
-          updateVideoProgress(lesson.name, video.currentTime, video.duration);
-          lastProgressUpdate = now;
-        }
-      });
-      video.addEventListener("ended", onMediaEnded);
-
-      video.addEventListener("click", (e) => {
-        // No detener la propagación si el click es en el área del video
-        // Solo detener si es en los controles
-        if (e.target.closest(".video-controls")) {
-          e.stopPropagation();
-        }
-
-        // Controlar reproducción/pausa para cualquier click en el video
-        if (video.paused) {
-          video.play();
-          isPlaying = true;
-        } else {
-          video.pause();
-          isPlaying = false;
-        }
-        updatePlayButton();
-      });
-
-      contentArea.appendChild(video);
-      currentMedia = video;
-
-      // Aplicar velocidad guardada
-      const savedSpeed = localStorage.getItem("playbackSpeed");
-      video.playbackRate = savedSpeed ? parseFloat(savedSpeed) : 1;
-      speedBtn.textContent = video.playbackRate + "x";
-
-      // Restaurar el volumen guardado antes de asignar el valor por defecto
-      const savedVolume = localStorage.getItem("videoVolume");
-      if (savedVolume !== null) {
-        video.volume = parseFloat(savedVolume);
-        currentVolume = video.volume * 100;
-        if (typeof volumeSlider !== "undefined")
-          volumeSlider.value = currentVolume;
-        if (typeof updateVolumeSlider === "function") updateVolumeSlider();
-      } else {
-        video.volume = currentVolume / 100;
-        if (typeof volumeSlider !== "undefined")
-          volumeSlider.value = currentVolume;
-        if (typeof updateVolumeSlider === "function") updateVolumeSlider();
+      if (videoProgress[lesson.name]) {
+        const saved = videoProgress[lesson.name].currentTime;
+        if (saved > 0 && saved < video.duration - 5) video.currentTime = saved;
       }
+    });
 
-      video
-        .play()
-        .then(() => {
-          isPlaying = true;
-          updatePlayButton();
-        })
-        .catch(() => {
-          console.log("El navegador bloqueó la reproducción automática");
-        });
+    // Mostrar error solo si este video sigue siendo el activo
+    video.addEventListener("error", () => {
+      if (currentMedia !== video) return;
+      contentArea.innerHTML = `
+        <div class="placeholder">
+          <div class="placeholder-icon"><span class="material-icons-round">videocam_off</span></div>
+          <h3>Formato no compatible</h3>
+          <p>El navegador no puede reproducir este archivo.<br>Intenta con MP4 (H.264) o WebM.</p>
+        </div>`;
+    });
 
-      // Agregar evento para guardar el volumen cada vez que se cambie
-      video.addEventListener("volumechange", () => {
-        localStorage.setItem("videoVolume", video.volume);
-      });
-    };
-    reader.readAsDataURL(lesson.file);
+    let lastProgressUpdate = 0;
+
+    video.addEventListener("timeupdate", () => {
+      updateProgress();
+      updateBuffer();
+      const now = Date.now();
+      if (now - lastProgressUpdate > 500) {
+        updateVideoProgress(lesson.name, video.currentTime, video.duration);
+        lastProgressUpdate = now;
+      }
+    });
+
+    video.addEventListener("ended", onMediaEnded);
+
+    video.addEventListener("click", () => {
+      if (video.paused) { video.play(); isPlaying = true; }
+      else              { video.pause(); isPlaying = false; }
+      updatePlayButton();
+    });
+
+    contentArea.appendChild(video);
+    currentMedia = video;
+
+    // Restore speed
+    const savedSpeed = localStorage.getItem("playbackSpeed");
+    video.playbackRate = savedSpeed ? parseFloat(savedSpeed) : 1;
+    speedBtn.textContent = video.playbackRate + "x";
+    updateSpeedUI(video.playbackRate);
+
+    // Restore volume
+    const savedVolume = localStorage.getItem("videoVolume");
+    if (savedVolume !== null) {
+      video.volume  = parseFloat(savedVolume);
+      currentVolume = video.volume * 100;
+      if (volumeSlider) volumeSlider.value = currentVolume;
+    } else {
+      video.volume = currentVolume / 100;
+      if (volumeSlider) volumeSlider.value = currentVolume;
+    }
+    updateVolumeIcon();
+
+    video.addEventListener("volumechange", () => {
+      localStorage.setItem("videoVolume", video.volume);
+    });
+
+    video.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
+
   } else if (lesson.type === "image") {
     reader.onload = (e) => {
       const img = document.createElement("img");
@@ -675,87 +675,112 @@ function loadLesson(index) {
       contentArea.appendChild(img);
     };
     reader.readAsDataURL(lesson.file);
+
   } else if (lesson.type === "code") {
     reader.onload = (e) => {
-      const codeText = e.target.result;
-      const extension = lesson.name.split(".").pop().toLowerCase();
+      const codeText     = e.target.result;
+      const extension    = lesson.name.split(".").pop().toLowerCase();
       const languageName = getLanguageName(extension);
 
-      const codeContainer = document.createElement("div");
-      codeContainer.className = "code-display";
+      const container = document.createElement("div");
+      container.className  = "code-display";
+      container.dataset.code = codeText;
 
-      const codeHeader = document.createElement("div");
-      codeHeader.className = "code-header";
-      codeHeader.innerHTML = `
-            <div class="code-language">${languageName}</div>
-            <button class="code-copy-btn" onclick="copyCodeToClipboard(this)">
-                <span class="material-icons">content_copy</span>
-                <span class="copy-text">Copiar</span>
-            </button>
-        `;
+      const header = document.createElement("div");
+      header.className = "code-header";
+      header.innerHTML = `
+        <div class="code-language">${languageName}</div>
+        <button class="code-copy-btn" onclick="copyCodeToClipboard(this)">
+          <span class="material-icons-round">content_copy</span>
+          <span class="copy-text">Copiar</span>
+        </button>`;
 
       const codeContent = document.createElement("div");
-      codeContent.className = "code-content";
+      codeContent.className   = "code-content";
       codeContent.textContent = codeText;
 
-      codeContainer.appendChild(codeHeader);
-      codeContainer.appendChild(codeContent);
-      contentArea.appendChild(codeContainer);
-
-      // Guardar el código para copiar
-      codeContainer.dataset.code = codeText;
+      container.appendChild(header);
+      container.appendChild(codeContent);
+      contentArea.appendChild(container);
     };
     reader.readAsText(lesson.file);
+
   } else if (lesson.type === "pdf") {
     reader.onload = (e) => {
       const iframe = document.createElement("iframe");
       iframe.src = e.target.result;
+      iframe.style.width = "100%"; iframe.style.height = "100%"; iframe.style.border = "none";
       contentArea.appendChild(iframe);
     };
     reader.readAsDataURL(lesson.file);
+
   } else {
-    contentArea.innerHTML =
-      '<div class="placeholder-message">Formato no soportado</div>';
+    contentArea.innerHTML = `<div class="placeholder"><h3>Formato no soportado</h3></div>`;
   }
 
   renderSidebar();
   updateNavigationButtons();
 }
 
+// ══════════════════════════════════════════
+// PLAY / PAUSE
+// ══════════════════════════════════════════
 function updatePlayButton() {
-  const icon = playPauseBtn.querySelector(".material-icons");
+  const icon = playPauseBtn.querySelector(".material-icons-round");
   if (!icon) return;
-  if (isPlaying) {
-    icon.textContent = "pause";
-  } else {
-    icon.textContent = "play_arrow";
-  }
+  icon.textContent = isPlaying ? "pause" : "play_arrow";
 }
 
 playPauseBtn.addEventListener("click", () => {
   if (!currentMedia) return;
-
   if (isPlaying) {
     currentMedia.pause();
     isPlaying = false;
+    clearTimeout(controlsTimeout);   // cancelar el auto-hide al pausar
+    showControls();                  // asegurar que se vean los controles
   } else {
     currentMedia.play();
     isPlaying = true;
+    showControls();                  // reinicia el timer de auto-hide
   }
   updatePlayButton();
 });
 
+// ══════════════════════════════════════════
+// SPEED
+// ══════════════════════════════════════════
+function updateSpeedUI(speed) {
+  document.querySelectorAll("[data-speed]").forEach((el) => {
+    el.classList.toggle("active", parseFloat(el.dataset.speed) === speed);
+  });
+  const label = speed === 1 ? "Normal" : speed + "x";
+  speedBtn.textContent = speed + "x";
+}
+
 speedBtn.addEventListener("click", () => {
   if (!currentMedia) return;
-
   const speeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
-  const currentIndex = speeds.indexOf(playbackSpeed);
-  playbackSpeed = speeds[(currentIndex + 1) % speeds.length];
+  const idx    = speeds.indexOf(playbackSpeed);
+  playbackSpeed = speeds[(idx + 1) % speeds.length];
   currentMedia.playbackRate = playbackSpeed;
-  speedBtn.textContent = playbackSpeed + "x";
   localStorage.setItem("playbackSpeed", playbackSpeed);
+  updateSpeedUI(playbackSpeed);
 });
 
+document.querySelectorAll("[data-speed]").forEach((item) => {
+  item.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const speed = parseFloat(item.dataset.speed);
+    playbackSpeed = speed;
+    if (currentMedia) currentMedia.playbackRate = speed;
+    localStorage.setItem("playbackSpeed", speed);
+    updateSpeedUI(speed);
+  });
+});
+
+// ══════════════════════════════════════════
+// REWIND / FORWARD
+// ══════════════════════════════════════════
 rewindBtn.addEventListener("click", () => {
   if (!currentMedia) return;
   currentMedia.currentTime = Math.max(0, currentMedia.currentTime - 10);
@@ -763,156 +788,89 @@ rewindBtn.addEventListener("click", () => {
 
 forwardBtn.addEventListener("click", () => {
   if (!currentMedia) return;
-  currentMedia.currentTime = Math.min(
-    currentMedia.duration,
-    currentMedia.currentTime + 10
-  );
+  currentMedia.currentTime = Math.min(currentMedia.duration, currentMedia.currentTime + 10);
 });
 
-fullscreenBtn.addEventListener("click", () => {
-  const videoSection = document.querySelector(".video-section");
-  const icon = fullscreenBtn.querySelector(".material-icons");
+// ══════════════════════════════════════════
+// FULLSCREEN
+// ══════════════════════════════════════════
+function toggleFullscreen() {
+  const icon = fullscreenBtn.querySelector(".material-icons-round");
   if (!document.fullscreenElement) {
-    if (videoSection.requestFullscreen) {
-      videoSection.requestFullscreen();
-    } else if (videoSection.webkitRequestFullscreen) {
-      videoSection.webkitRequestFullscreen();
-    } else if (videoSection.msRequestFullscreen) {
-      videoSection.msRequestFullscreen();
-    }
+    const el = videoSection;
+    if (el.requestFullscreen)            el.requestFullscreen();
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
     if (icon) icon.textContent = "fullscreen_exit";
   } else {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.webkitExitFullscreen) {
-      document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) {
-      document.msExitFullscreen();
-    }
+    if (document.exitFullscreen)            document.exitFullscreen();
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
     if (icon) icon.textContent = "fullscreen";
   }
+}
+
+fullscreenBtn.addEventListener("click", toggleFullscreen);
+
+document.addEventListener("fullscreenchange", () => {
+  const icon = fullscreenBtn.querySelector(".material-icons-round");
+  const videoArea = document.getElementById("videoArea");
+  if (document.fullscreenElement) {
+    if (icon) icon.textContent = "fullscreen_exit";
+    videoArea.classList.add("fs-active");
+    showControls(); // muestra y arranca el timer
+  } else {
+    if (icon) icon.textContent = "fullscreen";
+    videoArea.classList.remove("fs-active", "cursor-visible");
+    clearTimeout(controlsTimeout);
+    controlsOverlay.classList.add("visible"); // siempre visible fuera de fs
+  }
 });
 
-// Picture in Picture (nativo del navegador)
+videoSection.addEventListener("dblclick", () => toggleFullscreen());
+
+// ══════════════════════════════════════════
+// PICTURE IN PICTURE (native)
+// ══════════════════════════════════════════
 pipBtn.addEventListener("click", async () => {
   if (!currentMedia || currentMedia.tagName !== "VIDEO") return;
-
   try {
-    if (document.pictureInPictureElement) {
-      await document.exitPictureInPicture();
-    } else {
-      await currentMedia.requestPictureInPicture();
-    }
-  } catch (error) {
-    console.log("Error con Picture-in-Picture:", error);
-  }
+    if (document.pictureInPictureElement) await document.exitPictureInPicture();
+    else                                  await currentMedia.requestPictureInPicture();
+  } catch (_) {}
 });
 
-// Picture in Picture personalizado (ventana flotante)
+// ══════════════════════════════════════════
+// CUSTOM PiP WINDOW
+// ══════════════════════════════════════════
 customPipBtn.addEventListener("click", () => {
   if (!currentMedia || currentMedia.tagName !== "VIDEO") return;
-
-  if (isPipActive) {
-    closePip();
-  } else {
-    openPip();
-  }
+  if (isPipActive) closePip(); else openPip();
 });
-
-// Obtener nombre del lenguaje por extensión
-function getLanguageName(ext) {
-  const languages = {
-    js: "JavaScript",
-    py: "Python",
-    java: "Java",
-    cpp: "C++",
-    c: "C",
-    cs: "C#",
-    html: "HTML",
-    css: "CSS",
-    sql: "SQL",
-    json: "JSON",
-    xml: "XML",
-    php: "PHP",
-    rb: "Ruby",
-    go: "Go",
-    rs: "Rust",
-    ts: "TypeScript",
-    jsx: "React JSX",
-    tsx: "React TSX",
-    md: "Markdown",
-    txt: "Text",
-    sh: "Shell",
-    bash: "Bash",
-    yml: "YAML",
-    yaml: "YAML",
-  };
-  return languages[ext] || ext.toUpperCase();
-}
-
-// Copiar código al portapapeles
-function copyCodeToClipboard(button) {
-  const codeContainer = button.closest(".code-display");
-  const codeText = codeContainer.dataset.code;
-
-  navigator.clipboard
-    .writeText(codeText)
-    .then(() => {
-      // Cambiar estado del botón
-      const copyText = button.querySelector(".copy-text");
-      const icon = button.querySelector(".material-icons");
-
-      button.classList.add("copied");
-      copyText.textContent = "Copiado";
-      icon.textContent = "check";
-
-      // Restaurar después de 2 segundos
-      setTimeout(() => {
-        button.classList.remove("copied");
-        copyText.textContent = "Copiar";
-        icon.textContent = "content_copy";
-      }, 2000);
-    })
-    .catch((err) => {
-      console.error("Error al copiar:", err);
-    });
-}
 
 function openPip() {
   if (!currentMedia || isPipActive) return;
-
   isPipActive = true;
   const currentTime = currentMedia.currentTime;
-  const isPlaying = !currentMedia.paused;
+  const wasPlaying  = !currentMedia.paused;
 
-  // Clonar el video
   pipVideo = currentMedia.cloneNode(true);
-  pipVideo.src = currentMedia.src;
+  pipVideo.src         = currentMedia.src;
   pipVideo.currentTime = currentTime;
-  pipVideo.volume = currentMedia.volume;
+  pipVideo.volume      = currentMedia.volume;
   pipVideo.playbackRate = currentMedia.playbackRate;
-  pipVideo.controls = true;
+  pipVideo.controls    = true;
 
-  // Pausar el video original
   currentMedia.pause();
 
-  // Agregar el video clonado al contenedor PiP
   pipVideoContainer.innerHTML = "";
   pipVideoContainer.appendChild(pipVideo);
 
-  // Actualizar título
   const lesson = allLessons[currentLessonIndex];
   pipTitle.textContent = lesson ? lesson.name : "Video";
 
-  // Mostrar la ventana PiP
-  pipOverlay.classList.add("active");
+  pipOverlay.classList.add("visible");
 
-  // Reproducir si estaba reproduciendo
-  if (isPlaying) {
-    pipVideo.play();
-  }
+  if (wasPlaying) pipVideo.play();
 
-  // Sincronizar progreso
   pipVideo.addEventListener("timeupdate", () => {
     if (currentMedia && lesson) {
       currentMedia.currentTime = pipVideo.currentTime;
@@ -920,121 +878,85 @@ function openPip() {
     }
   });
 
-  // Actualizar icono del botón
-  const icon = customPipBtn.querySelector(".material-icons");
-  icon.textContent = "close_fullscreen";
+  const icon = customPipBtn.querySelector(".material-icons-round");
+  if (icon) icon.textContent = "close_fullscreen";
 }
 
 function closePip() {
   if (!isPipActive) return;
-
   const currentTime = pipVideo ? pipVideo.currentTime : 0;
-  const isPlaying = pipVideo ? !pipVideo.paused : false;
+  const wasPlaying  = pipVideo ? !pipVideo.paused : false;
 
-  // Restaurar tiempo en el video original
   if (currentMedia) {
     currentMedia.currentTime = currentTime;
-    if (isPlaying) {
-      currentMedia.play();
-      isPlaying = true;
-      updatePlayButton();
-    }
+    if (wasPlaying) { currentMedia.play(); isPlaying = true; updatePlayButton(); }
   }
 
-  // Limpiar
   pipVideoContainer.innerHTML = "";
-  pipVideo = null;
+  pipVideo    = null;
   isPipActive = false;
-  pipOverlay.classList.remove("active");
+  pipOverlay.classList.remove("visible");
 
-  // Restaurar icono del botón
-  const icon = customPipBtn.querySelector(".material-icons");
-  icon.textContent = "open_in_new";
+  const icon = customPipBtn.querySelector(".material-icons-round");
+  if (icon) icon.textContent = "open_in_new";
 }
 
-// Cerrar PiP
-pipClose.addEventListener("click", () => {
-  closePip();
-});
+pipClose.addEventListener("click", closePip);
 
-// Minimizar PiP (reducir tamaño)
 pipMinimize.addEventListener("click", () => {
-  if (pipOverlay.style.width === "300px") {
-    pipOverlay.style.width = "400px";
-    pipOverlay.style.height = "225px";
-  } else {
-    pipOverlay.style.width = "300px";
-    pipOverlay.style.height = "169px";
-  }
+  const isSmall = pipOverlay.style.width === "240px";
+  pipOverlay.style.width = isSmall ? "320px" : "240px";
 });
 
-// Hacer la ventana PiP arrastrable
-let isDragging = false;
-let currentX;
-let currentY;
-let initialX;
-let initialY;
+// PiP drag
+let isDragging = false, currentX, currentY, initialX, initialY;
 
 pipHeader.addEventListener("mousedown", (e) => {
-  if (e.target.closest(".pip-control-btn")) return;
-
+  if (e.target.closest(".pip-btn")) return;
   isDragging = true;
-  initialX = e.clientX - pipOverlay.offsetLeft;
-  initialY = e.clientY - pipOverlay.offsetTop;
+  initialX   = e.clientX - pipOverlay.offsetLeft;
+  initialY   = e.clientY - pipOverlay.offsetTop;
   pipHeader.style.cursor = "grabbing";
 });
 
 document.addEventListener("mousemove", (e) => {
   if (!isDragging) return;
-
   e.preventDefault();
-  currentX = e.clientX - initialX;
-  currentY = e.clientY - initialY;
-
-  // Limitar al viewport
-  const maxX = window.innerWidth - pipOverlay.offsetWidth;
-  const maxY = window.innerHeight - pipOverlay.offsetHeight;
-
-  currentX = Math.max(0, Math.min(currentX, maxX));
-  currentY = Math.max(0, Math.min(currentY, maxY));
-
-  pipOverlay.style.left = currentX + "px";
-  pipOverlay.style.top = currentY + "px";
-  pipOverlay.style.right = "auto";
+  currentX = Math.max(0, Math.min(e.clientX - initialX, window.innerWidth  - pipOverlay.offsetWidth));
+  currentY = Math.max(0, Math.min(e.clientY - initialY, window.innerHeight - pipOverlay.offsetHeight));
+  pipOverlay.style.left   = currentX + "px";
+  pipOverlay.style.top    = currentY + "px";
+  pipOverlay.style.right  = "auto";
   pipOverlay.style.bottom = "auto";
 });
 
 document.addEventListener("mouseup", () => {
-  if (isDragging) {
-    isDragging = false;
-    pipHeader.style.cursor = "move";
-  }
+  if (isDragging) { isDragging = false; pipHeader.style.cursor = "move"; }
 });
 
+// ══════════════════════════════════════════
+// PROGRESS BAR
+// ══════════════════════════════════════════
 let isDraggingProgress = false;
 
 progressBar.addEventListener("mousedown", (e) => {
   if (!currentMedia || !currentMedia.duration) return;
   isDraggingProgress = true;
-  updateProgressFromMouse(e);
+  seekFromMouse(e);
 });
 
 document.addEventListener("mousemove", (e) => {
   if (!isDraggingProgress) return;
-  updateProgressFromMouse(e);
+  seekFromMouse(e);
 });
 
-document.addEventListener("mouseup", () => {
-  isDraggingProgress = false;
-});
+document.addEventListener("mouseup", () => { isDraggingProgress = false; });
 
-function updateProgressFromMouse(e) {
+function seekFromMouse(e) {
   if (!currentMedia || !currentMedia.duration) return;
-
-  const rect = progressBar.getBoundingClientRect();
-  const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+  const rect       = progressBar.getBoundingClientRect();
+  const x          = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
   const percentage = x / rect.width;
-
   currentMedia.currentTime = percentage * currentMedia.duration;
   progressFilled.style.width = percentage * 100 + "%";
   updateTimeDisplay();
@@ -1042,10 +964,17 @@ function updateProgressFromMouse(e) {
 
 function updateProgress() {
   if (!currentMedia || !currentMedia.duration) return;
-
-  const percentage = (currentMedia.currentTime / currentMedia.duration) * 100;
-  progressFilled.style.width = percentage + "%";
+  const pct = (currentMedia.currentTime / currentMedia.duration) * 100;
+  progressFilled.style.width = pct + "%";
   updateTimeDisplay();
+}
+
+function updateBuffer() {
+  if (!currentMedia || !currentMedia.buffered || !currentMedia.duration) return;
+  if (currentMedia.buffered.length === 0) return;
+  const bufferedEnd = currentMedia.buffered.end(currentMedia.buffered.length - 1);
+  const pct = (bufferedEnd / currentMedia.duration) * 100;
+  if (progressBuffer) progressBuffer.style.width = pct + "%";
 }
 
 function updateTimeDisplay() {
@@ -1053,21 +982,25 @@ function updateTimeDisplay() {
     timeDisplay.textContent = "0:00 / 0:00";
     return;
   }
-
-  const current = formatTime(currentMedia.currentTime);
-  const total = formatTime(currentMedia.duration);
-  timeDisplay.textContent = `${current} / ${total}`;
+  timeDisplay.textContent = `${formatTime(currentMedia.currentTime)} / ${formatTime(currentMedia.duration)}`;
 }
 
 function formatTime(seconds) {
-  const mins = Math.floor(seconds / 60);
-  const secs = Math.floor(seconds % 60);
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
+  if (!seconds || isNaN(seconds) || !isFinite(seconds)) return "0:00";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+// ══════════════════════════════════════════
+// ON MEDIA ENDED
+// ══════════════════════════════════════════
 function onMediaEnded() {
   completedLessons.add(currentLessonIndex);
   renderSidebar();
+  updateGlobalProgress();
 
   if (autoplay && currentLessonIndex < allLessons.length - 1) {
     setTimeout(() => {
@@ -1081,6 +1014,9 @@ function onMediaEnded() {
   }
 }
 
+// ══════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════
 prevLessonBtn.addEventListener("click", () => {
   if (currentLessonIndex > 0) {
     completedLessons.add(currentLessonIndex);
@@ -1099,47 +1035,47 @@ function updateNavigationButtons() {
   nextLessonBtn.disabled = currentLessonIndex >= allLessons.length - 1;
 }
 
+// ══════════════════════════════════════════
+// SIDEBAR TOGGLE
+// ══════════════════════════════════════════
 toggleSidebarBtn.addEventListener("click", () => {
-  sidebar.classList.toggle("hidden");
+  sidebar.classList.toggle("closed");
+  toggleSidebarBtn.classList.toggle("sidebar-toggle-active", !sidebar.classList.contains("closed"));
 });
 
+// ══════════════════════════════════════════
+// SETTINGS POPUP
+// ══════════════════════════════════════════
 settingsBtn.addEventListener("click", (e) => {
   e.stopPropagation();
-  settingsMenu.classList.toggle("show");
-  volumeSliderContainer.classList.remove("show");
+  settingsMenu.classList.toggle("open");
   themeSubmenu.style.display = "none";
-  speedSubmenu.style.display = "none";
 });
 
 document.addEventListener("click", (e) => {
   if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) {
-    settingsMenu.classList.remove("show");
-  }
-  if (!volumeSliderContainer.contains(e.target) && e.target !== volumeBtn) {
-    volumeSliderContainer.classList.remove("show");
+    settingsMenu.classList.remove("open");
   }
 });
 
-// Configurar el estado inicial del toggle de autoplay
-if (autoplay) {
-  toggleSwitch.classList.add("active");
+// Autoplay — sincroniza botón de barra + toggle del settings
+function setAutoplay(value) {
+  autoplay = value;
+  localStorage.setItem("autoplay", autoplay);
+  toggleSwitch.classList.toggle("on", autoplay);
+  autoplayBtn.classList.toggle("on", autoplay);
+  autoplayBtn.title = autoplay ? "Autoplay activado" : "Autoplay desactivado";
 }
 
-autoplayMenuItem.addEventListener("click", () => {
-  autoplay = !autoplay;
-  if (autoplay) {
-    toggleSwitch.classList.add("active");
-  } else {
-    toggleSwitch.classList.remove("active");
-  }
-  // Guardar el estado en localStorage
-  localStorage.setItem("autoplay", autoplay);
-});
+setAutoplay(autoplay); // aplicar estado inicial
 
+autoplayBtn.addEventListener("click", () => setAutoplay(!autoplay));
+
+autoplayMenuItem.addEventListener("click", () => setAutoplay(!autoplay));
+
+// Theme
 themeMenuItem.addEventListener("click", () => {
-  const isVisible = themeSubmenu.style.display === "block";
-  themeSubmenu.style.display = isVisible ? "none" : "block";
-  speedSubmenu.style.display = "none";
+  themeSubmenu.style.display = themeSubmenu.style.display === "grid" ? "none" : "grid";
 });
 
 document.querySelectorAll("[data-theme]").forEach((item) => {
@@ -1147,15 +1083,10 @@ document.querySelectorAll("[data-theme]").forEach((item) => {
     e.stopPropagation();
     const selectedTheme = item.dataset.theme;
     theme = selectedTheme;
-
     localStorage.setItem("theme", selectedTheme);
-
-    document
-      .querySelectorAll("[data-theme]")
-      .forEach((el) => el.classList.remove("active"));
+    document.querySelectorAll("[data-theme]").forEach((el) => el.classList.remove("active"));
     item.classList.add("active");
-    document.getElementById("currentTheme").textContent = item.textContent;
-
+    document.getElementById("currentTheme").textContent = item.textContent.trim();
     applyTheme(selectedTheme);
     themeSubmenu.style.display = "none";
   });
@@ -1163,9 +1094,7 @@ document.querySelectorAll("[data-theme]").forEach((item) => {
 
 function applyTheme(selectedTheme) {
   if (selectedTheme === "system") {
-    const prefersDark = window.matchMedia(
-      "(prefers-color-scheme: dark)"
-    ).matches;
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     document.body.classList.toggle("light-mode", !prefersDark);
   } else if (selectedTheme === "light") {
     document.body.classList.add("light-mode");
@@ -1174,93 +1103,34 @@ function applyTheme(selectedTheme) {
   }
 }
 
-window
-  .matchMedia("(prefers-color-scheme: dark)")
-  .addEventListener("change", (e) => {
-    if (theme === "system") {
-      document.body.classList.toggle("light-mode", !e.matches);
-    }
-  });
-
-speedMenuItem.addEventListener("click", () => {
-  const isVisible = speedSubmenu.style.display === "block";
-  speedSubmenu.style.display = isVisible ? "none" : "block";
-  themeSubmenu.style.display = "none";
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+  if (theme === "system") document.body.classList.toggle("light-mode", !e.matches);
 });
 
-document.querySelectorAll("[data-speed]").forEach((item) => {
-  item.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const speed = parseFloat(item.dataset.speed);
-    playbackSpeed = speed;
-
-    if (currentMedia) {
-      currentMedia.playbackRate = speed;
-    }
-
-    document
-      .querySelectorAll("[data-speed]")
-      .forEach((el) => el.classList.remove("active"));
-    item.classList.add("active");
-    const speedText = speed === 1 ? "Normal" : speed + "x";
-    document.getElementById("currentSpeed").textContent = speedText;
-    speedBtn.textContent = speed + "x";
-    speedSubmenu.style.display = "none";
-  });
-});
-
-videoSection.addEventListener("mousemove", () => {
-  showControls();
-});
-
-videoSection.addEventListener("mouseleave", () => {
-  if (isPlaying && currentMedia && document.fullscreenElement) {
-    hideControls();
-  }
-});
-
-function showControls() {
-  controlsOverlay.classList.add("visible");
-  prevLessonBtn.style.opacity = "1";
-  nextLessonBtn.style.opacity = "1";
-
-  // Ocultar rápidamente los botones prev/next después de 1s si no hay interacción
-  clearTimeout(controlsBtnTimeout);
-  controlsBtnTimeout = setTimeout(() => {
-    prevLessonBtn.style.opacity = "0";
-    nextLessonBtn.style.opacity = "0";
-  }, 400);
-
-  // Mantener la lógica previa para ocultar el overlay en fullscreen
-  clearTimeout(controlsTimeout);
-  if (isPlaying && currentMedia && document.fullscreenElement) {
-    controlsTimeout = setTimeout(() => {
-      hideControls();
-    }, 400);
-  }
-}
-
-function hideControls() {
-  if (!document.fullscreenElement) return; // No ocultar el overlay si no está en pantalla completa
-  // Limpiar timeouts relacionados
-  clearTimeout(controlsBtnTimeout);
-  clearTimeout(controlsTimeout);
-
-  controlsOverlay.classList.remove("visible");
-  prevLessonBtn.style.opacity = "0";
-  nextLessonBtn.style.opacity = "0";
-}
-
+// Load saved theme
 const savedTheme = localStorage.getItem("theme") || "system";
 theme = savedTheme;
 applyTheme(theme);
 document.querySelectorAll("[data-theme]").forEach((el) => {
   el.classList.toggle("active", el.dataset.theme === theme);
 });
-document.getElementById("currentTheme").textContent =
-  document.querySelector(`[data-theme="${theme}"]`)?.textContent || "Sistema";
+const activeThemeEl = document.querySelector(`[data-theme="${theme}"]`);
+if (activeThemeEl) document.getElementById("currentTheme").textContent = activeThemeEl.textContent.trim();
 
-// Control de volumen (solo mutear/activar con un clic)
+// Load saved speed UI
+updateSpeedUI(playbackSpeed);
+
+// ══════════════════════════════════════════
+// VOLUME
+// ══════════════════════════════════════════
+function updateVolumeIcon() {
+  const icon = document.getElementById("volumeIcon");
+  if (!icon) return;
+  if (currentVolume === 0 || isMuted) icon.textContent = "volume_off";
+  else if (currentVolume < 50)        icon.textContent = "volume_down";
+  else                                icon.textContent = "volume_up";
+}
+
 volumeBtn.addEventListener("click", (e) => {
   e.stopPropagation();
   toggleMute();
@@ -1273,27 +1143,11 @@ volumeSlider.addEventListener("input", (e) => {
 
 function setVolume(volume) {
   currentVolume = volume;
-  volumePercentage.textContent = volume + "%";
-
-  if (currentMedia) {
-    currentMedia.volume = volume / 100;
-  }
-
-  const icon = volumeBtn.querySelector(".material-icons");
-  if (volume === 0) {
-    icon.textContent = "volume_off";
-    isMuted = true;
-  } else if (volume < 50) {
-    icon.textContent = "volume_down";
-    isMuted = false;
-  } else {
-    icon.textContent = "volume_up";
-    isMuted = false;
-  }
-
-  if (volume > 0) {
-    lastVolume = volume;
-  }
+  if (volumePercentage) volumePercentage.textContent = volume + "%";
+  if (currentMedia) currentMedia.volume = volume / 100;
+  isMuted = volume === 0;
+  updateVolumeIcon();
+  if (volume > 0) lastVolume = volume;
 }
 
 function changeVolume(delta) {
@@ -1304,9 +1158,9 @@ function changeVolume(delta) {
 
 function toggleMute() {
   if (isMuted || currentVolume === 0) {
-    const restoreVolume = lastVolume || 100;
-    volumeSlider.value = restoreVolume;
-    setVolume(restoreVolume);
+    const restore = lastVolume || 100;
+    volumeSlider.value = restore;
+    setVolume(restore);
   } else {
     lastVolume = currentVolume;
     volumeSlider.value = 0;
@@ -1314,13 +1168,38 @@ function toggleMute() {
   }
 }
 
-volumeBtn.addEventListener("dblclick", (e) => {
-  e.stopPropagation();
-  toggleMute();
+// ══════════════════════════════════════════
+// CONTROLS VISIBILITY (fullscreen auto-hide)
+// ══════════════════════════════════════════
+videoSection.addEventListener("mousemove", showControls);
+videoSection.addEventListener("mouseleave", () => {
+  if (document.fullscreenElement) hideControls();
 });
 
-// Atajos de teclado
+function showControls() {
+  const videoArea = document.getElementById("videoArea");
+  controlsOverlay.classList.add("visible");
+  if (videoArea) videoArea.classList.add("cursor-visible");
+  clearTimeout(controlsTimeout);
+  // Auto-ocultar si el video está reproduciéndose (fullscreen o no)
+  if (isPlaying && currentMedia) {
+    controlsTimeout = setTimeout(hideControls, 1000);
+  }
+}
+
+function hideControls() {
+  const videoArea = document.getElementById("videoArea");
+  controlsOverlay.classList.remove("visible");
+  if (videoArea) videoArea.classList.remove("cursor-visible");
+}
+
+// ══════════════════════════════════════════
+// KEYBOARD SHORTCUTS
+// ══════════════════════════════════════════
 document.addEventListener("keydown", (e) => {
+  // Don't fire if typing in an input
+  if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
   if (e.key === " " && currentMedia) {
     e.preventDefault();
     playPauseBtn.click();
@@ -1336,128 +1215,62 @@ document.addEventListener("keydown", (e) => {
     changeVolume(-5);
   } else if (e.key.toLowerCase() === "m" && currentMedia) {
     toggleMute();
+  } else if (e.key === "f" || e.key === "F") {
+    toggleFullscreen();
   }
 });
 
-// Agregar un listener para el doble clic en la sección del video
-videoSection.addEventListener("dblclick", () => {
-  toggleFullscreen();
-});
-
-// Función para alternar entre pantalla completa y pantalla normal
-function toggleFullscreen() {
-  const videoSection = document.querySelector(".video-section");
-  const icon = fullscreenBtn.querySelector(".material-icons");
-
-  if (!document.fullscreenElement) {
-    // Si no está en pantalla completa, entramos en modo pantalla completa
-    if (videoSection.requestFullscreen) {
-      videoSection.requestFullscreen();
-    } else if (videoSection.webkitRequestFullscreen) {
-      // Safari
-      videoSection.webkitRequestFullscreen();
-    } else if (videoSection.msRequestFullscreen) {
-      // IE/Edge
-      videoSection.msRequestFullscreen();
-    }
-    if (icon) icon.textContent = "fullscreen_exit";
-  } else {
-    // Si ya está en pantalla completa, salimos
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.webkitExitFullscreen) {
-      // Safari
-      document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) {
-      // IE/Edge
-      document.msExitFullscreen();
-    }
-    if (icon) icon.textContent = "fullscreen";
-  }
-}
-
-// Referencias para la previsualización
+// ══════════════════════════════════════════
+// PROGRESS PREVIEW (thumbnail)
+// ══════════════════════════════════════════
 const progressPreview = document.getElementById("progressPreview");
-const previewCanvas = document.getElementById("previewCanvas");
-const previewTime = document.getElementById("previewTime");
-const previewCtx = previewCanvas
-  ? previewCanvas.getContext("2d", {
-      alpha: false,
-      desynchronized: true,
-    })
-  : null;
+const previewCanvas   = document.getElementById("previewCanvas");
+const previewTime     = document.getElementById("previewTime");
+const previewCtx      = previewCanvas
+  ? previewCanvas.getContext("2d", { alpha: false, desynchronized: true }) : null;
 
-// Configurar canvas para mejor calidad
 if (previewCanvas && previewCtx) {
   const dpr = window.devicePixelRatio || 1;
-  previewCanvas.width = 160 * dpr;
-  previewCanvas.height = 90 * dpr;
-  previewCanvas.style.width = "160px";
+  previewCanvas.width  = 160 * dpr;
+  previewCanvas.height = 90  * dpr;
+  previewCanvas.style.width  = "160px";
   previewCanvas.style.height = "90px";
   previewCtx.scale(dpr, dpr);
-  previewCtx.imageSmoothingEnabled = true;
-  previewCtx.imageSmoothingQuality = "high";
+  previewCtx.imageSmoothingEnabled  = true;
+  previewCtx.imageSmoothingQuality  = "high";
 }
-// Evento mousemove para mostrar previsualización
+
 progressBar.addEventListener("mousemove", (e) => {
-  if (
-    !currentMedia ||
-    !currentMedia.duration ||
-    currentMedia.tagName !== "VIDEO"
-  ) {
+  if (!currentMedia || !currentMedia.duration || currentMedia.tagName !== "VIDEO") {
     progressPreview.style.display = "none";
     return;
   }
 
-  const rect = progressBar.getBoundingClientRect();
-  const x = e.clientX - rect.left;
+  const rect       = progressBar.getBoundingClientRect();
+  const x          = e.clientX - rect.left;
   const percentage = Math.max(0, Math.min(1, x / rect.width));
-  const time = percentage * currentMedia.duration;
+  const time       = percentage * currentMedia.duration;
 
-  // Posicionar la previsualización
   const previewWidth = 160;
-  let leftPosition = x;
+  const leftPos = Math.max(previewWidth / 2, Math.min(x, rect.width - previewWidth / 2));
 
-  // Ajustar si se sale por la izquierda
-  if (leftPosition < previewWidth / 2) {
-    leftPosition = previewWidth / 2;
-  }
-
-  // Ajustar si se sale por la derecha
-  if (leftPosition > rect.width - previewWidth / 2) {
-    leftPosition = rect.width - previewWidth / 2;
-  }
-
-  progressPreview.style.left = leftPosition + "px";
+  progressPreview.style.left    = leftPos + "px";
   progressPreview.style.display = "block";
+  previewTime.textContent       = formatTime(time);
 
-  // Actualizar tiempo
-  previewTime.textContent = formatTime(time);
-
-  // Capturar frame del video
   if (previewCtx && currentMedia.readyState >= 2) {
     try {
-      // Crear un video temporal para capturar el frame
-      const tempVideo = document.createElement("video");
-      tempVideo.src = currentMedia.src;
-      tempVideo.currentTime = time;
-      tempVideo.muted = true;
-
-      tempVideo.addEventListener(
-        "seeked",
-        function captureFrame() {
-          try {
-            previewCtx.drawImage(tempVideo, 0, 0, 160, 90); // Era 160, 90
-            tempVideo.removeEventListener("seeked", captureFrame);
-          } catch (e) {
-            console.log("Error al capturar frame:", e);
-          }
-        },
-        { once: true }
-      );
-    } catch (e) {
-      console.log("Error en previsualización:", e);
-    }
+      if (!previewSeekVideo) {
+        previewSeekVideo = document.createElement("video");
+        previewSeekVideo.muted   = true;
+        previewSeekVideo.preload = "auto";
+        previewSeekVideo.src     = currentMedia.src;
+        previewSeekVideo.addEventListener("seeked", () => {
+          try { previewCtx.drawImage(previewSeekVideo, 0, 0, 160, 90); } catch (_) {}
+        });
+      }
+      previewSeekVideo.currentTime = time;
+    } catch (_) {}
   }
 });
 
