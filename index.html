@@ -75,13 +75,13 @@
 
         <!-- Controls overlay -->
         <div class="controls-bar controls-overlay visible" id="controlsBar">
-          <div class="progress-bar-container">
+          <div class="progress-bar-container" id="progressBarContainer">
             <div class="progress-track" id="progressBar">
               <div class="progress-buffer" id="progressBuffer"></div>
               <div class="progress-fill" id="progressFilled"></div>
               <div class="progress-preview" id="progressPreview">
                 <div class="progress-preview-container">
-                  <canvas id="previewCanvas" width="160" height="90"></canvas>
+                  <canvas id="previewCanvas" width="128" height="72"></canvas>
                   <div class="progress-preview-time" id="previewTime">0:00</div>
                 </div>
               </div>
@@ -222,6 +222,18 @@
     <div class="pip-titlebar" id="pipHeader">
       <span class="pip-title-text" id="pipTitle">Video flotante</span>
       <div class="pip-controls-row">
+        <button class="pip-btn" id="pipPrev" title="Lección anterior">
+          <span class="material-icons-round">skip_previous</span>
+        </button>
+        <button class="pip-btn" id="pipRewind" title="Retroceder 10s">
+          <span class="material-icons-round">replay_10</span>
+        </button>
+        <button class="pip-btn" id="pipForward" title="Adelantar 10s">
+          <span class="material-icons-round">forward_10</span>
+        </button>
+        <button class="pip-btn" id="pipNext" title="Siguiente lección">
+          <span class="material-icons-round">skip_next</span>
+        </button>
         <button class="pip-btn" id="pipMinimize" title="Minimizar">
           <span class="material-icons-round">minimize</span>
         </button>

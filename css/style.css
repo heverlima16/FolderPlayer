@@ -265,6 +265,52 @@ input[type="file"] { display: none; }
 .placeholder h3 { font-size: 17px; font-weight: 500; color: var(--text2); }
 .placeholder p  { font-size: 13px; color: var(--text3); line-height: 1.5; max-width: 280px; }
 
+/* Audio "now playing" view */
+.audio-view {
+  width: 100%; height: 100%;
+  cursor: pointer;
+}
+
+.audio-view h3 { max-width: 420px; padding: 0 24px; word-break: break-word; }
+
+.audio-view .placeholder-icon {
+  width: 96px; height: 96px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  border: 1px solid var(--accent-glow);
+}
+
+.audio-view .placeholder-icon .material-icons-round { font-size: 40px; color: var(--accent-light); }
+
+.audio-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 22px;
+}
+
+.audio-eq span {
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent-light);
+  animation: audio-eq-bounce 1.1s ease-in-out infinite;
+  animation-play-state: paused;
+  height: 6px;
+}
+
+.audio-view.playing .audio-eq span { animation-play-state: running; }
+
+.audio-eq span:nth-child(1) { animation-delay: -0.9s; }
+.audio-eq span:nth-child(2) { animation-delay: -0.6s; }
+.audio-eq span:nth-child(3) { animation-delay: -1.1s; }
+.audio-eq span:nth-child(4) { animation-delay: -0.3s; }
+.audio-eq span:nth-child(5) { animation-delay: -0.75s; }
+
+@keyframes audio-eq-bounce {
+  0%, 100% { height: 6px; }
+  50%      { height: 22px; }
+}
+
 /* Pause overlay */
 .pause-overlay {
   position: absolute;
@@ -355,10 +401,10 @@ input[type="file"] { display: none; }
 .video-area.fs-active.cursor-visible { cursor: default; }
 
 /* Progress track */
-.progress-bar-container { width: 100%; padding: 8px 0; cursor: pointer; }
+.progress-bar-container { width: 100%; padding: 12px 0; cursor: pointer; }
 
 .progress-track {
-  height: 3px;
+  height: 4px;
   background: rgba(255,255,255,0.15);
   border-radius: 99px;
   cursor: pointer;
@@ -367,7 +413,7 @@ input[type="file"] { display: none; }
   transition: height 0.15s ease;
 }
 
-.progress-track:hover { height: 5px; }
+.progress-track:hover { height: 7px; }
 
 .progress-buffer {
   position: absolute;

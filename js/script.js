@@ -22,6 +22,7 @@ let lastProgressSaveTime = 0;
 let isPipActive         = false;
 let pipVideo            = null;
 let currentBlobUrl      = null; // para revocar el blob URL del video activo
+let videoListenersAbort = null; // limpia los listeners del <video> cuando se reutiliza (ver PiP nativo)
 
 // ══════════════════════════════════════════
 // DOM REFS
@@ -38,7 +39,7 @@ const headerSep            = document.getElementById("headerSep");
 const playPauseBtn         = document.getElementById("playPauseBtn");
 const speedBtn             = document.getElementById("speedBtn");
 const timeDisplay          = document.getElementById("timeDisplay");
-const progressBar          = document.getElementById("progressBar");
+const progressBarContainer = document.getElementById("progressBarContainer");
 const progressFilled       = document.getElementById("progressFilled");
 const progressBuffer       = document.getElementById("progressBuffer");
 const prevLessonBtn        = document.getElementById("prevLesson");
@@ -64,6 +65,10 @@ const pipVideoContainer    = document.getElementById("pipVideoContainer");
 const pipTitle             = document.getElementById("pipTitle");
 const pipClose             = document.getElementById("pipClose");
 const pipMinimize          = document.getElementById("pipMinimize");
+const pipRewind            = document.getElementById("pipRewind");
+const pipForward           = document.getElementById("pipForward");
+const pipPrev              = document.getElementById("pipPrev");
+const pipNext              = document.getElementById("pipNext");
 const pipHeader            = document.getElementById("pipHeader");
 const controlsOverlay      = document.querySelector(".controls-overlay");
 const globalProgressFill   = document.getElementById("globalProgressFill");
@@ -116,6 +121,12 @@ const VIDEO_EXTS = [
   "dv","qt","divx","xvid","rmvb","rm",
 ];
 
+// "ogg" ya pertenece a VIDEO_EXTS (Ogg Theora), por eso se excluye aquí
+const AUDIO_EXTS = [
+  "mp3","wav","wave","m4a","aac","flac",
+  "oga","opus","wma","weba","aiff","aif","amr",
+];
+
 const MIME_MAP = {
   mp4:"video/mp4", m4v:"video/mp4", f4v:"video/mp4",
   webm:"video/webm",
@@ -140,6 +151,7 @@ function getVideoMime(filename) {
 function getFileType(filename) {
   const ext = filename.split(".").pop().toLowerCase();
   if (VIDEO_EXTS.includes(ext))                                 return "video";
+  if (AUDIO_EXTS.includes(ext))                                 return "audio";
   if (["jpg","jpeg","png","gif","webp","svg"].includes(ext))    return "image";
   if (["js","html","css","json","py","java","cpp","sql","c","txt","md"].includes(ext)) return "code";
   if (ext === "pdf")                                             return "pdf";
@@ -147,7 +159,7 @@ function getFileType(filename) {
 }
 
 function getTypeIcon(type) {
-  const map = { video:"play_circle", image:"image", code:"code", pdf:"description", unknown:"attach_file" };
+  const map = { video:"play_circle", audio:"headphones", image:"image", code:"code", pdf:"description", unknown:"attach_file" };
   return map[type] || "attach_file";
 }
 
@@ -167,7 +179,7 @@ function getLanguageName(ext) {
 async function processFolder(files) {
   const structure  = {};
   const rootPath   = files[0].webkitRelativePath.split("/")[0];
-  const validExts  = [...VIDEO_EXTS, "pdf","js","html","css","py","java","cpp","c","txt","md","jpg","jpeg","png","gif","webp","svg"];
+  const validExts  = [...VIDEO_EXTS, ...AUDIO_EXTS, "pdf","js","html","css","py","java","cpp","c","txt","md","jpg","jpeg","png","gif","webp","svg"];
   const excluded   = [".DS_Store","Thumbs.db",".gitignore"];
 
   files.forEach((file) => {
@@ -193,14 +205,14 @@ async function processFolder(files) {
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
   }
 
-  function getVideoDuration(file) {
+  function getMediaDuration(file, type) {
     return new Promise((resolve) => {
-      const video = document.createElement("video");
-      video.preload = "metadata";
+      const media = document.createElement(type === "audio" ? "audio" : "video");
+      media.preload = "metadata";
       const objectUrl = URL.createObjectURL(file);
-      video.onloadedmetadata = () => { URL.revokeObjectURL(objectUrl); resolve(formatTime(video.duration)); };
-      video.onerror         = () => { URL.revokeObjectURL(objectUrl); resolve(""); };
-      video.src = objectUrl;
+      media.onloadedmetadata = () => { URL.revokeObjectURL(objectUrl); resolve(formatTime(media.duration)); };
+      media.onerror          = () => { URL.revokeObjectURL(objectUrl); resolve(""); };
+      media.src = objectUrl;
     });
   }
 
@@ -210,7 +222,7 @@ async function processFolder(files) {
 
     for (const file of moduleFiles) {
       const fileType = getFileType(file.name);
-      const duration = fileType === "video" ? await getVideoDuration(file) : "";
+      const duration = (fileType === "video" || fileType === "audio") ? await getMediaDuration(file, fileType) : "";
       lessons.push({ name: file.name, file, duration, type: fileType });
     }
 
@@ -307,14 +319,15 @@ function renderSidebar() {
         ? `<span class="material-icons-round" style="font-size:12px">check</span>`
         : String(lessonIndex + 1);
 
-      // Progress bar (videos only)
-      const progressEl = lesson.type === "video" ? `
+      // Progress bar (video/audio only)
+      const isPlayable = lesson.type === "video" || lesson.type === "audio";
+      const progressEl = isPlayable ? `
         <div class="lesson-progress">
           <div class="lesson-progress-fill" style="width:${getVideoProgress(lesson.name)}%"></div>
         </div>` : "";
 
-      // Resource button (non-video)
-      const resourceBtn = lesson.type !== "video" ? `
+      // Resource button (non-playable files)
+      const resourceBtn = !isPlayable ? `
         <button class="resource-btn" onclick="downloadResource(${globalIndex})">Descargar</button>` : "";
 
       itemEl.innerHTML = `
@@ -330,7 +343,7 @@ function renderSidebar() {
 
       itemEl.addEventListener("click", () => {
         loadLesson(globalIndex);
-        if (lesson.type !== "video") {
+        if (lesson.type !== "video" && lesson.type !== "audio") {
           completedLessons.add(globalIndex);
           renderSidebar();
           updateGlobalProgress();
@@ -424,7 +437,7 @@ function renderSearch(query) {
 
     item.addEventListener("click", () => {
       loadLesson(idx);
-      if (lesson.type !== "video") {
+      if (lesson.type !== "video" && lesson.type !== "audio") {
         completedLessons.add(idx);
         updateGlobalProgress();
       }
@@ -657,14 +670,63 @@ function playTsWithMSE(file, video) {
 // ══════════════════════════════════════════
 // LOAD LESSON
 // ══════════════════════════════════════════
-let previewSeekVideo = null;
+let previewSeekVideo   = null;
+let previewSeeking     = false;
+let previewPendingTime = null;
 
 function resetPreviewVideo() {
   if (previewSeekVideo) { previewSeekVideo.src = ""; previewSeekVideo = null; }
+  clearTimeout(previewSeekWatchdog);
+  previewSeeking     = false;
+  previewPendingTime = null;
+}
+
+// ══════════════════════════════════════════
+// MEDIA SESSION (botones avanzar/retroceder en PiP nativo del navegador y controles del SO)
+// ══════════════════════════════════════════
+function setupMediaSession(media, title) {
+  if (!("mediaSession" in navigator)) return;
+
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: title || "FolderPlayer",
+    artist: courseData.name || "FolderPlayer",
+  });
+
+  navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+    const skip = details.seekOffset || 10;
+    media.currentTime = Math.max(0, media.currentTime - skip);
+  });
+  navigator.mediaSession.setActionHandler("seekforward", (details) => {
+    const skip = details.seekOffset || 10;
+    media.currentTime = Math.min(media.duration || media.currentTime, media.currentTime + skip);
+  });
+  navigator.mediaSession.setActionHandler("play",  () => media.play());
+  navigator.mediaSession.setActionHandler("pause", () => media.pause());
+
+  // Botones de "lección anterior/siguiente" en el PiP nativo del navegador
+  navigator.mediaSession.setActionHandler(
+    "previoustrack",
+    currentLessonIndex > 0 ? () => prevLessonBtn.click() : null
+  );
+  navigator.mediaSession.setActionHandler(
+    "nexttrack",
+    currentLessonIndex < allLessons.length - 1 ? () => nextLessonBtn.click() : null
+  );
 }
 
 function loadLesson(index) {
   if (index < 0 || index >= allLessons.length) return;
+
+  // Si el video activo está en Picture-in-Picture nativo y la nueva lección
+  // también es un video, hay que REUTILIZAR el mismo <video> (solo cambiarle
+  // la fuente) en vez de destruirlo: si se reconstruye desde cero, el
+  // navegador cierra el PiP y no hay forma fiable de volver a pedirlo
+  // (requiere activación del usuario, que ya se perdió para ese momento).
+  const reuseVideoForNativePip =
+    document.pictureInPictureElement === currentMedia &&
+    !!currentMedia &&
+    currentMedia.tagName === "VIDEO" &&
+    allLessons[index].type === "video";
 
   currentLessonIndex = index;
   const lesson = allLessons[index];
@@ -673,10 +735,17 @@ function loadLesson(index) {
   currentLessonEl.textContent = lesson.name;
   if (headerSep) headerSep.style.display = "inline";
 
-  contentArea.innerHTML = "";
-  if (currentMedia) {
-    if (currentMedia.pause) currentMedia.pause();
-    currentMedia = null;
+  let reusedPipVideo = null;
+  if (reuseVideoForNativePip) {
+    reusedPipVideo = currentMedia;
+    reusedPipVideo.pause();
+    if (videoListenersAbort) videoListenersAbort.abort();
+  } else {
+    contentArea.innerHTML = "";
+    if (currentMedia) {
+      if (currentMedia.pause) currentMedia.pause();
+      currentMedia = null;
+    }
   }
   if (currentBlobUrl) {
     URL.revokeObjectURL(currentBlobUrl);
@@ -690,8 +759,11 @@ function loadLesson(index) {
 
   if (lesson.type === "video") {
     const ext   = lesson.name.split(".").pop().toLowerCase();
-    const video = document.createElement("video");
+    const video = reusedPipVideo || document.createElement("video");
     video.controls = false;
+
+    videoListenersAbort = new AbortController();
+    const { signal } = videoListenersAbort;
 
     // Archivos .ts requieren transmuxing a MP4 vía MSE
     if (ext === "ts" || ext === "mts" || ext === "m2ts") {
@@ -717,7 +789,7 @@ function loadLesson(index) {
         const saved = videoProgress[lesson.name].currentTime;
         if (saved > 0 && saved < video.duration - 5) video.currentTime = saved;
       }
-    });
+    }, { signal });
 
     // Mostrar error solo si este video sigue siendo el activo
     video.addEventListener("error", () => {
@@ -728,7 +800,7 @@ function loadLesson(index) {
           <h3>Formato no compatible</h3>
           <p>El navegador no puede reproducir este archivo.<br>Intenta con MP4 (H.264) o WebM.</p>
         </div>`;
-    });
+    }, { signal });
 
     let lastProgressUpdate = 0;
 
@@ -740,17 +812,17 @@ function loadLesson(index) {
         updateVideoProgress(lesson.name, video.currentTime, video.duration);
         lastProgressUpdate = now;
       }
-    });
+    }, { signal });
 
-    video.addEventListener("ended", onMediaEnded);
+    video.addEventListener("ended", onMediaEnded, { signal });
 
     video.addEventListener("click", () => {
       if (video.paused) { video.play(); isPlaying = true; }
       else              { video.pause(); isPlaying = false; }
       updatePlayButton();
-    });
+    }, { signal });
 
-    contentArea.appendChild(video);
+    if (!reusedPipVideo) contentArea.appendChild(video);
     currentMedia = video;
 
     // Restore speed
@@ -773,9 +845,101 @@ function loadLesson(index) {
 
     video.addEventListener("volumechange", () => {
       localStorage.setItem("videoVolume", video.volume);
-    });
+    }, { signal });
+
+    setupMediaSession(video, lesson.name);
 
     video.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
+
+  } else if (lesson.type === "audio") {
+    const audio = document.createElement("audio");
+    audio.style.display = "none";
+
+    const objectUrl = URL.createObjectURL(lesson.file);
+    currentBlobUrl  = objectUrl;
+    audio.src       = objectUrl;
+
+    const audioView = document.createElement("div");
+    audioView.className = "audio-view placeholder";
+    audioView.innerHTML = `
+      <div class="placeholder-icon"><span class="material-icons-round">headphones</span></div>
+      <h3>${escapeHtml(lesson.name)}</h3>
+      <div class="audio-eq"><span></span><span></span><span></span><span></span><span></span></div>
+    `;
+
+    audio.addEventListener("loadedmetadata", () => {
+      updateTimeDisplay();
+      lesson.duration = formatTime(audio.duration);
+      renderSidebar();
+
+      if (videoProgress[lesson.name]) {
+        const saved = videoProgress[lesson.name].currentTime;
+        if (saved > 0 && saved < audio.duration - 5) audio.currentTime = saved;
+      }
+    });
+
+    audio.addEventListener("error", () => {
+      if (currentMedia !== audio) return;
+      contentArea.innerHTML = `
+        <div class="placeholder">
+          <div class="placeholder-icon"><span class="material-icons-round">music_off</span></div>
+          <h3>Formato no compatible</h3>
+          <p>El navegador no puede reproducir este archivo de audio.</p>
+        </div>`;
+    });
+
+    let lastAudioProgressUpdate = 0;
+
+    audio.addEventListener("timeupdate", () => {
+      updateProgress();
+      updateBuffer();
+      const now = Date.now();
+      if (now - lastAudioProgressUpdate > 500) {
+        updateVideoProgress(lesson.name, audio.currentTime, audio.duration);
+        lastAudioProgressUpdate = now;
+      }
+    });
+
+    audio.addEventListener("ended", onMediaEnded);
+
+    audio.addEventListener("play",  () => audioView.classList.add("playing"));
+    audio.addEventListener("pause", () => audioView.classList.remove("playing"));
+
+    audioView.addEventListener("click", () => {
+      if (audio.paused) { audio.play(); isPlaying = true; }
+      else              { audio.pause(); isPlaying = false; }
+      updatePlayButton();
+    });
+
+    contentArea.appendChild(audioView);
+    contentArea.appendChild(audio);
+    currentMedia = audio;
+
+    // Restore speed
+    const savedSpeedAudio = localStorage.getItem("playbackSpeed");
+    audio.playbackRate = savedSpeedAudio ? parseFloat(savedSpeedAudio) : 1;
+    speedBtn.textContent = audio.playbackRate + "x";
+    updateSpeedUI(audio.playbackRate);
+
+    // Restore volume
+    const savedVolumeAudio = localStorage.getItem("videoVolume");
+    if (savedVolumeAudio !== null) {
+      audio.volume  = parseFloat(savedVolumeAudio);
+      currentVolume = audio.volume * 100;
+      if (volumeSlider) volumeSlider.value = currentVolume;
+    } else {
+      audio.volume = currentVolume / 100;
+      if (volumeSlider) volumeSlider.value = currentVolume;
+    }
+    updateVolumeIcon();
+
+    audio.addEventListener("volumechange", () => {
+      localStorage.setItem("videoVolume", audio.volume);
+    });
+
+    setupMediaSession(audio, lesson.name);
+
+    audio.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
 
   } else if (lesson.type === "image") {
     reader.onload = (e) => {
@@ -870,8 +1034,8 @@ rewatchBtn.addEventListener("click", () => {
     saveProgress();
   }
 
-  // Reiniciar video al inicio
-  if (currentMedia && currentMedia.tagName === "VIDEO") {
+  // Reiniciar video/audio al inicio
+  if (currentMedia && (currentMedia.tagName === "VIDEO" || currentMedia.tagName === "AUDIO")) {
     currentMedia.currentTime = 0;
     progressFilled.style.width = "0%";
     if (progressBuffer) progressBuffer.style.width = "0%";
@@ -1079,6 +1243,43 @@ pipMinimize.addEventListener("click", () => {
   pipOverlay.style.width = isSmall ? "320px" : "240px";
 });
 
+pipRewind.addEventListener("click", () => {
+  if (!pipVideo) return;
+  pipVideo.currentTime = Math.max(0, pipVideo.currentTime - 10);
+});
+
+pipForward.addEventListener("click", () => {
+  if (!pipVideo || !pipVideo.duration) return;
+  pipVideo.currentTime = Math.min(pipVideo.duration, pipVideo.currentTime + 10);
+});
+
+// Navegar de lección sin salir de la ventana flotante: se cierra, se carga
+// la lección, y se vuelve a abrir sobre el nuevo video una vez que sus
+// metadatos (y la posición guardada) ya se aplicaron. Si la lección
+// siguiente/anterior no es un video, la ventana flotante se queda cerrada.
+function reopenPipWhenReady() {
+  if (currentMedia) {
+    currentMedia.addEventListener("loadedmetadata", () => {
+      if (currentMedia && currentMedia.tagName === "VIDEO") openPip();
+    }, { once: true });
+  }
+}
+
+pipPrev.addEventListener("click", () => {
+  if (currentLessonIndex <= 0) return;
+  completedLessons.add(currentLessonIndex);
+  closePip();
+  loadLesson(currentLessonIndex - 1);
+  reopenPipWhenReady();
+});
+
+pipNext.addEventListener("click", () => {
+  if (currentLessonIndex >= allLessons.length - 1) return;
+  closePip();
+  loadLesson(currentLessonIndex + 1);
+  reopenPipWhenReady();
+});
+
 // PiP drag
 let isDragging = false, currentX, currentY, initialX, initialY;
 
@@ -1110,7 +1311,7 @@ document.addEventListener("mouseup", () => {
 // ══════════════════════════════════════════
 let isDraggingProgress = false;
 
-progressBar.addEventListener("mousedown", (e) => {
+progressBarContainer.addEventListener("mousedown", (e) => {
   if (!currentMedia || !currentMedia.duration) return;
   isDraggingProgress = true;
   seekFromMouse(e);
@@ -1125,7 +1326,7 @@ document.addEventListener("mouseup", () => { isDraggingProgress = false; });
 
 function seekFromMouse(e) {
   if (!currentMedia || !currentMedia.duration) return;
-  const rect       = progressBar.getBoundingClientRect();
+  const rect       = progressBarContainer.getBoundingClientRect();
   const x          = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
   const percentage = x / rect.width;
   currentMedia.currentTime = percentage * currentMedia.duration;
@@ -1166,9 +1367,50 @@ function formatTime(seconds) {
 }
 
 // ══════════════════════════════════════════
+// END-OF-VIDEO CHIME
+// ══════════════════════════════════════════
+let chimeAudioCtx = null;
+
+function playEndChime() {
+  if (isMuted || currentVolume === 0) return;
+  try {
+    if (!chimeAudioCtx) chimeAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (chimeAudioCtx.state === "suspended") chimeAudioCtx.resume();
+
+    const ctx = chimeAudioCtx;
+    const now = ctx.currentTime;
+    // Dos notas ascendentes cortas, distintas al sonido tipo Platzi
+    const notes = [
+      { freq: 784,    start: 0,    dur: 0.16 }, // G5
+      { freq: 1174.7, start: 0.11, dur: 0.32 }, // D6
+    ];
+
+    notes.forEach(({ freq, start, dur }) => {
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+
+      const t0 = now + start;
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(0.55, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.05);
+    });
+  } catch (_) {}
+}
+
+// ══════════════════════════════════════════
 // ON MEDIA ENDED
 // ══════════════════════════════════════════
 function onMediaEnded() {
+  const lesson = allLessons[currentLessonIndex];
+  if (lesson && lesson.type === "video") playEndChime();
+
   completedLessons.add(currentLessonIndex);
   renderSidebar();
   updateGlobalProgress();
@@ -1400,30 +1642,62 @@ const previewTime     = document.getElementById("previewTime");
 const previewCtx      = previewCanvas
   ? previewCanvas.getContext("2d", { alpha: false, desynchronized: true }) : null;
 
+// Resolución reducida y sin escalado retina: la miniatura es pequeña y
+// decodificar/pintar en alta resolución en cada mousemove causaba lag al buscar.
+const PREVIEW_W = 128;
+const PREVIEW_H = 72;
+
 if (previewCanvas && previewCtx) {
-  const dpr = window.devicePixelRatio || 1;
-  previewCanvas.width  = 160 * dpr;
-  previewCanvas.height = 90  * dpr;
-  previewCanvas.style.width  = "160px";
-  previewCanvas.style.height = "90px";
-  previewCtx.scale(dpr, dpr);
+  previewCanvas.width  = PREVIEW_W;
+  previewCanvas.height = PREVIEW_H;
+  previewCanvas.style.width  = PREVIEW_W + "px";
+  previewCanvas.style.height = PREVIEW_H + "px";
   previewCtx.imageSmoothingEnabled  = true;
-  previewCtx.imageSmoothingQuality  = "high";
+  previewCtx.imageSmoothingQuality  = "low";
 }
 
-progressBar.addEventListener("mousemove", (e) => {
+// Throttle + coalescing: como máximo un seek "en vuelo" a la vez, y como mucho
+// uno cada PREVIEW_SEEK_INTERVAL ms, para no saturar el decodificador de video.
+const PREVIEW_SEEK_INTERVAL = 120;
+let lastPreviewSeekTime = 0;
+
+let previewSeekWatchdog = null;
+
+function requestPreviewFrame(time) {
+  // Ya está (casi) en esa posición: nada que buscar, evita un currentTime
+  // redundante que algunos navegadores no confirman con un evento "seeked".
+  if (Math.abs(previewSeekVideo.currentTime - time) < 0.05) {
+    previewPendingTime = null;
+    return;
+  }
+
+  const now = Date.now();
+  if (previewSeeking || now - lastPreviewSeekTime < PREVIEW_SEEK_INTERVAL) {
+    previewPendingTime = time;
+    return;
+  }
+  previewPendingTime = null;
+  previewSeeking     = true;
+  lastPreviewSeekTime = now;
+  clearTimeout(previewSeekWatchdog);
+  // Red de seguridad: si "seeked" nunca llega, no dejar la miniatura congelada.
+  previewSeekWatchdog = setTimeout(() => { previewSeeking = false; }, 500);
+  try { previewSeekVideo.currentTime = time; }
+  catch (_) { previewSeeking = false; }
+}
+
+progressBarContainer.addEventListener("mousemove", (e) => {
   if (!currentMedia || !currentMedia.duration || currentMedia.tagName !== "VIDEO") {
     progressPreview.style.display = "none";
     return;
   }
 
-  const rect       = progressBar.getBoundingClientRect();
+  const rect       = progressBarContainer.getBoundingClientRect();
   const x          = e.clientX - rect.left;
   const percentage = Math.max(0, Math.min(1, x / rect.width));
   const time       = percentage * currentMedia.duration;
 
-  const previewWidth = 160;
-  const leftPos = Math.max(previewWidth / 2, Math.min(x, rect.width - previewWidth / 2));
+  const leftPos = Math.max(PREVIEW_W / 2, Math.min(x, rect.width - PREVIEW_W / 2));
 
   progressPreview.style.left    = leftPos + "px";
   progressPreview.style.display = "block";
@@ -1437,14 +1711,18 @@ progressBar.addEventListener("mousemove", (e) => {
         previewSeekVideo.preload = "auto";
         previewSeekVideo.src     = currentMedia.src;
         previewSeekVideo.addEventListener("seeked", () => {
-          try { previewCtx.drawImage(previewSeekVideo, 0, 0, 160, 90); } catch (_) {}
+          clearTimeout(previewSeekWatchdog);
+          previewSeeking = false;
+          try { previewCtx.drawImage(previewSeekVideo, 0, 0, PREVIEW_W, PREVIEW_H); } catch (_) {}
+          if (previewPendingTime !== null) requestPreviewFrame(previewPendingTime);
         });
       }
-      previewSeekVideo.currentTime = time;
+      requestPreviewFrame(time);
     } catch (_) {}
   }
 });
 
-progressBar.addEventListener("mouseleave", () => {
+progressBarContainer.addEventListener("mouseleave", () => {
   progressPreview.style.display = "none";
+  previewPendingTime = null;
 });
