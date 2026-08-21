@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════
-let courseData          = { name: "", modules: [] };
+let courseData          = { name: "", root: null }; // root: nodo carpeta raíz del árbol { type:"folder", name, path, children:[] }
 let currentLessonIndex  = -1;
 let allLessons          = [];
 let isPlaying           = false;
@@ -11,7 +11,7 @@ let playbackSpeed       = localStorage.getItem("playbackSpeed")
 let autoplay            = localStorage.getItem("autoplay") === "true";
 let completedLessons    = new Set();
 let theme               = "system";
-let expandedModules     = new Set();
+let expandedFolders     = new Set(); // rutas ("A/B") de carpetas expandidas en el árbol del sidebar
 let controlsTimeout;
 let controlsBtnTimeout;
 let currentVolume       = 100;
@@ -23,6 +23,7 @@ let isPipActive         = false;
 let pipVideo            = null;
 let currentBlobUrl      = null; // para revocar el blob URL del video activo
 let videoListenersAbort = null; // limpia los listeners del <video> cuando se reutiliza (ver PiP nativo)
+let courseState         = {}; // { [courseName]: { lastLesson, completed: [names] } } — para retomar donde quedó al recargar la misma carpeta
 
 // ══════════════════════════════════════════
 // DOM REFS
@@ -100,6 +101,36 @@ function saveProgress() {
 loadProgress();
 
 // ══════════════════════════════════════════
+// COURSE STATE (última lección vista + completados, por carpeta)
+// ══════════════════════════════════════════
+function loadCourseState() {
+  const saved = localStorage.getItem("courseState");
+  if (saved) {
+    try { courseState = JSON.parse(saved); }
+    catch (e) { courseState = {}; }
+  }
+}
+
+function saveCourseState() {
+  if (!courseData.name) return;
+  const completedPaths = [...completedLessons]
+    .map((i) => allLessons[i] && allLessons[i].path)
+    .filter(Boolean);
+  const lastLesson = currentLessonIndex >= 0 && allLessons[currentLessonIndex]
+    ? allLessons[currentLessonIndex].path : undefined;
+
+  const entry = courseState[courseData.name] || {};
+  if (lastLesson) entry.lastLesson = lastLesson;
+  entry.completed = completedPaths;
+  courseState[courseData.name] = entry;
+
+  try { localStorage.setItem("courseState", JSON.stringify(courseState)); }
+  catch (e) {}
+}
+
+loadCourseState();
+
+// ══════════════════════════════════════════
 // FOLDER LOADING
 // ══════════════════════════════════════════
 loadFolderBtn.addEventListener("click", () => folderInput.click());
@@ -150,15 +181,20 @@ function getVideoMime(filename) {
 
 function getFileType(filename) {
   const ext = filename.split(".").pop().toLowerCase();
-  if (VIDEO_EXTS.includes(ext))                                 return "video";
-  if (AUDIO_EXTS.includes(ext))                                 return "audio";
-  if (["jpg","jpeg","png","gif","webp","svg"].includes(ext))    return "image";
-  if (["js","html","css","json","py","java","cpp","sql","c","txt","md"].includes(ext)) return "code";
-  if (ext === "pdf")                                             return "pdf";
+  if (VIDEO_EXTS.includes(ext))                                                                  return "video";
+  if (AUDIO_EXTS.includes(ext))                                                                  return "audio";
+  if (["jpg","jpeg","png","gif","webp","svg"].includes(ext))                                     return "image";
+  if (["js","html","htm","css","json","py","java","cpp","sql","c","txt","md","markdown"].includes(ext)) return "code";
+  if (ext === "pdf")                                                                              return "pdf";
   return "unknown";
 }
 
-function getTypeIcon(type) {
+function getTypeIcon(type, filename) {
+  if (filename) {
+    const ext = filename.split(".").pop().toLowerCase();
+    if (["html","htm"].includes(ext)) return "language";
+    if (["md","markdown"].includes(ext)) return "article";
+  }
   const map = { video:"play_circle", audio:"headphones", image:"image", code:"code", pdf:"description", unknown:"attach_file" };
   return map[type] || "attach_file";
 }
@@ -166,9 +202,9 @@ function getTypeIcon(type) {
 function getLanguageName(ext) {
   const languages = {
     js:"JavaScript", py:"Python", java:"Java", cpp:"C++", c:"C", cs:"C#",
-    html:"HTML", css:"CSS", sql:"SQL", json:"JSON", xml:"XML", php:"PHP",
+    html:"HTML", htm:"HTML", css:"CSS", sql:"SQL", json:"JSON", xml:"XML", php:"PHP",
     rb:"Ruby", go:"Go", rs:"Rust", ts:"TypeScript", jsx:"React JSX", tsx:"React TSX",
-    md:"Markdown", txt:"Text", sh:"Shell", bash:"Bash", yml:"YAML", yaml:"YAML",
+    md:"Markdown", markdown:"Markdown", txt:"Text", sh:"Shell", bash:"Bash", yml:"YAML", yaml:"YAML",
   };
   return languages[ext] || ext.toUpperCase();
 }
@@ -176,67 +212,115 @@ function getLanguageName(ext) {
 // ══════════════════════════════════════════
 // PROCESS FOLDER
 // ══════════════════════════════════════════
+function naturalSort(a, b) {
+  return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function getMediaDuration(file, type) {
+  return new Promise((resolve) => {
+    const media = document.createElement(type === "audio" ? "audio" : "video");
+    media.preload = "metadata";
+    const objectUrl = URL.createObjectURL(file);
+    media.onloadedmetadata = () => { URL.revokeObjectURL(objectUrl); resolve(formatTime(media.duration)); };
+    media.onerror          = () => { URL.revokeObjectURL(objectUrl); resolve(""); };
+    media.src = objectUrl;
+  });
+}
+
 async function processFolder(files) {
-  const structure  = {};
-  const rootPath   = files[0].webkitRelativePath.split("/")[0];
-  const validExts  = [...VIDEO_EXTS, ...AUDIO_EXTS, "pdf","js","html","css","py","java","cpp","c","txt","md","jpg","jpeg","png","gif","webp","svg"];
-  const excluded   = [".DS_Store","Thumbs.db",".gitignore"];
+  const rootPath  = files[0].webkitRelativePath.split("/")[0];
+  const validExts = [...VIDEO_EXTS, ...AUDIO_EXTS, "pdf","js","html","htm","css","json","py","java","cpp","sql","c","txt","md","markdown","jpg","jpeg","png","gif","webp","svg"];
+  const excluded  = [".DS_Store","Thumbs.db",".gitignore"];
+
+  // ── Construir el árbol de carpetas/archivos (profundidad arbitraria) ──
+  const root = { type: "folder", name: rootPath, path: "", children: [] };
 
   files.forEach((file) => {
+    if (excluded.includes(file.name)) return;
     const ext = file.name.split(".").pop().toLowerCase();
-    if (!validExts.includes(ext) || excluded.includes(file.name)) return;
+    if (!validExts.includes(ext)) return;
+
     const parts = file.webkitRelativePath.split("/");
-    parts.shift();
-    if (parts.length === 1) {
-      if (!structure["_root"]) structure["_root"] = [];
-      structure["_root"].push(file);
-    } else {
-      const folder = parts[0];
-      if (!structure[folder]) structure[folder] = [];
-      structure[folder].push(file);
+    parts.shift(); // quitar el nombre de la carpeta raíz
+
+    let node    = root;
+    let pathAcc = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      pathAcc     = pathAcc ? `${pathAcc}/${parts[i]}` : parts[i];
+      let child   = node.children.find((c) => c.type === "folder" && c.name === parts[i]);
+      if (!child) {
+        child = { type: "folder", name: parts[i], path: pathAcc, children: [] };
+        node.children.push(child);
+      }
+      node = child;
     }
+
+    const fileName   = parts[parts.length - 1];
+    const lessonPath = pathAcc ? `${pathAcc}/${fileName}` : fileName;
+    node.children.push({ type: getFileType(fileName), name: fileName, path: lessonPath, file, duration: "" });
   });
 
-  courseData.name    = rootPath;
-  courseData.modules = [];
-  allLessons         = [];
-
-  function naturalSort(a, b) {
-    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" });
-  }
-
-  function getMediaDuration(file, type) {
-    return new Promise((resolve) => {
-      const media = document.createElement(type === "audio" ? "audio" : "video");
-      media.preload = "metadata";
-      const objectUrl = URL.createObjectURL(file);
-      media.onloadedmetadata = () => { URL.revokeObjectURL(objectUrl); resolve(formatTime(media.duration)); };
-      media.onerror          = () => { URL.revokeObjectURL(objectUrl); resolve(""); };
-      media.src = objectUrl;
+  // Carpetas primero (orden natural), luego archivos (orden natural) — en cada nivel
+  function sortTree(node) {
+    node.children.sort((a, b) => {
+      if (a.type === "folder" && b.type !== "folder") return -1;
+      if (a.type !== "folder" && b.type === "folder") return 1;
+      return naturalSort(a, b);
     });
+    node.children.forEach((c) => { if (c.type === "folder") sortTree(c); });
   }
+  sortTree(root);
 
-  for (const folderName of Object.keys(structure).sort()) {
-    const moduleFiles = structure[folderName].sort(naturalSort);
-    const lessons = [];
-
-    for (const file of moduleFiles) {
-      const fileType = getFileType(file.name);
-      const duration = (fileType === "video" || fileType === "audio") ? await getMediaDuration(file, fileType) : "";
-      lessons.push({ name: file.name, file, duration, type: fileType });
+  async function fillDurations(node) {
+    for (const child of node.children) {
+      if (child.type === "folder") await fillDurations(child);
+      else if (child.type === "video" || child.type === "audio") {
+        child.duration = await getMediaDuration(child.file, child.type);
+      }
     }
-
-    const module = {
-      name: folderName === "_root" ? "Archivos principales" : folderName,
-      lessons,
-    };
-    courseData.modules.push(module);
-    allLessons.push(...module.lessons);
   }
+  await fillDurations(root);
+
+  function flattenLessons(node, out) {
+    node.children.forEach((child) => {
+      if (child.type === "folder") flattenLessons(child, out);
+      else out.push(child);
+    });
+    return out;
+  }
+
+  courseData.name = rootPath;
+  courseData.root = root;
+  allLessons       = flattenLessons(root, []);
 
   courseName.textContent = courseData.name;
+
+  // Retomar completados, última lección vista y carpetas abiertas de esta misma carpeta (por ruta)
+  const savedState = courseState[courseData.name];
+  completedLessons = new Set();
+  expandedFolders  = new Set();
+  let startIndex = 0;
+  if (savedState) {
+    if (Array.isArray(savedState.completed)) {
+      allLessons.forEach((lesson, idx) => {
+        if (savedState.completed.includes(lesson.path)) completedLessons.add(idx);
+      });
+    }
+    if (savedState.lastLesson) {
+      const idx = allLessons.findIndex((l) => l.path === savedState.lastLesson);
+      if (idx >= 0) startIndex = idx;
+    }
+  }
+  if (allLessons[startIndex]) {
+    // Abrir en el árbol las carpetas que contienen la lección donde se retoma
+    const segs = allLessons[startIndex].path.split("/");
+    segs.pop();
+    let acc = "";
+    segs.forEach((s) => { acc = acc ? `${acc}/${s}` : s; expandedFolders.add(acc); });
+  }
+
   renderSidebar();
-  if (allLessons.length > 0) loadLesson(0);
+  if (allLessons.length > 0) loadLesson(startIndex);
 }
 
 // ══════════════════════════════════════════
@@ -247,43 +331,111 @@ function renderSidebar() {
   if (searchQuery && searchQuery.trim()) { renderSearch(searchQuery); return; }
   sidebarContent.innerHTML = "";
 
+  if (!courseData.root) {
+    sidebarContent.innerHTML = `
+      <div style="padding:24px 16px;text-align:center;color:var(--text3);font-size:13px">
+        No hay contenido cargado
+      </div>`;
+    updateGlobalProgress();
+    return;
+  }
+
   const r    = 11;
   const circ = 2 * Math.PI * r; // ~69.115
 
-  // Calcular qué módulo contiene la lección activa
-  let activeModuleIndex = -1;
-  {
-    let off = 0;
-    for (let i = 0; i < courseData.modules.length; i++) {
-      if (currentLessonIndex >= off && currentLessonIndex < off + courseData.modules[i].lessons.length) {
-        activeModuleIndex = i; break;
-      }
-      off += courseData.modules[i].lessons.length;
-    }
+  // Índice global de cada lección — el árbol se recorre en el mismo orden que allLessons
+  const nodeIndex = new Map();
+  allLessons.forEach((lesson, i) => nodeIndex.set(lesson, i));
+
+  // Carpetas ancestro de la lección activa, para resaltarlas en el árbol
+  const activeAncestorPaths = new Set();
+  const activeLesson = currentLessonIndex >= 0 ? allLessons[currentLessonIndex] : null;
+  if (activeLesson) {
+    const segs = activeLesson.path.split("/");
+    segs.pop();
+    let acc = "";
+    segs.forEach((s) => { acc = acc ? `${acc}/${s}` : s; activeAncestorPaths.add(acc); });
   }
 
-  let globalOffset = 0;
+  function folderStats(node) {
+    let total = 0, completed = 0;
+    node.children.forEach((child) => {
+      if (child.type === "folder") {
+        const s = folderStats(child);
+        total += s.total; completed += s.completed;
+      } else {
+        total++;
+        if (completedLessons.has(nodeIndex.get(child))) completed++;
+      }
+    });
+    return { total, completed };
+  }
 
-  courseData.modules.forEach((module, moduleIndex) => {
-    // ── Count completed in this module ──
-    const lessonStart       = globalOffset;
-    const completedInModule = module.lessons.filter((_, i) => completedLessons.has(lessonStart + i)).length;
-    const modulePct         = module.lessons.length > 0 ? completedInModule / module.lessons.length : 0;
-    const ringOffset        = circ * (1 - modulePct);
+  function renderLesson(lesson, displayNumber, container) {
+    const globalIndex    = nodeIndex.get(lesson);
+    const isActiveLesson = globalIndex === currentLessonIndex;
+    const isDone          = completedLessons.has(globalIndex);
 
-    // ── Module header ──
-    const isExpanded = expandedModules.has(moduleIndex);
+    const itemEl = document.createElement("div");
+    itemEl.className     = `lesson-item${isDone ? " completed" : ""}${isActiveLesson ? " active" : ""}`;
+    itemEl.dataset.path  = lesson.path;
+
+    // Number badge (checkmark if done, active accent if current)
+    const numContent = isDone
+      ? `<span class="material-icons-round" style="font-size:12px">check</span>`
+      : String(displayNumber);
+
+    // Progress bar (video/audio only)
+    const isPlayable = lesson.type === "video" || lesson.type === "audio";
+    const progressEl = isPlayable ? `
+      <div class="lesson-progress">
+        <div class="lesson-progress-fill" style="width:${getVideoProgress(lesson.path)}%"></div>
+      </div>` : "";
+
+    // Resource button (non-playable files)
+    const resourceBtn = !isPlayable ? `
+      <button class="resource-btn" onclick="downloadResource(${globalIndex})">Descargar</button>` : "";
+
+    itemEl.innerHTML = `
+      <div class="lesson-num">${numContent}</div>
+      <div class="lesson-info">
+        <div class="lesson-title">${escapeHtml(lesson.name)}</div>
+        <div class="lesson-dur">${lesson.duration || (lesson.type !== "video" ? lesson.type : "")}</div>
+        ${progressEl}
+        ${resourceBtn}
+      </div>
+      <span class="material-icons-round lesson-type-icon">${getTypeIcon(lesson.type, lesson.name)}</span>
+    `;
+
+    itemEl.addEventListener("click", () => {
+      loadLesson(globalIndex);
+      if (lesson.type !== "video" && lesson.type !== "audio") {
+        completedLessons.add(globalIndex);
+        renderSidebar();
+        updateGlobalProgress();
+      }
+    });
+
+    container.appendChild(itemEl);
+  }
+
+  function renderFolder(node, container) {
+    const stats      = folderStats(node);
+    const pct        = stats.total > 0 ? stats.completed / stats.total : 0;
+    const ringOffset = circ * (1 - pct);
+    const isExpanded = expandedFolders.has(node.path);
+    const isActive   = activeAncestorPaths.has(node.path);
 
     const moduleEl = document.createElement("div");
     moduleEl.className = "module";
 
     const headerEl = document.createElement("div");
-    headerEl.className = `module-header${moduleIndex === activeModuleIndex ? " active-module" : ""}`;
+    headerEl.className = `module-header${isActive ? " active-module" : ""}`;
     headerEl.innerHTML = `
       <span class="material-icons-round module-chevron${isExpanded ? " open" : ""}">chevron_right</span>
       <div class="module-info">
-        <div class="module-name">${module.name}</div>
-        <div class="module-meta">${completedInModule}/${module.lessons.length} clases</div>
+        <div class="module-name">${escapeHtml(node.name)}</div>
+        <div class="module-meta">${stats.completed}/${stats.total} clases</div>
       </div>
       <div class="module-progress-ring">
         <svg width="28" height="28" viewBox="0 0 28 28">
@@ -294,70 +446,32 @@ function renderSidebar() {
     `;
 
     headerEl.addEventListener("click", () => {
-      if (expandedModules.has(moduleIndex)) {
-        expandedModules.delete(moduleIndex);
+      if (expandedFolders.has(node.path)) {
+        expandedFolders.delete(node.path);
       } else {
-        expandedModules.add(moduleIndex);
+        expandedFolders.add(node.path);
       }
       renderSidebar();
     });
 
-    // ── Lessons list ──
-    const lessonsEl = document.createElement("div");
-    lessonsEl.className = `lessons${isExpanded ? " open" : ""}`;
+    const childrenEl = document.createElement("div");
+    childrenEl.className = `lessons${isExpanded ? " open" : ""}`;
 
-    module.lessons.forEach((lesson, lessonIndex) => {
-      const globalIndex = lessonStart + lessonIndex;
-      const isActive    = globalIndex === currentLessonIndex;
-      const isDone      = completedLessons.has(globalIndex);
-
-      const itemEl = document.createElement("div");
-      itemEl.className = `lesson-item${isDone ? " completed" : ""}${isActive ? " active" : ""}`;
-
-      // Number badge (checkmark if done, active accent if current)
-      const numContent = isDone
-        ? `<span class="material-icons-round" style="font-size:12px">check</span>`
-        : String(lessonIndex + 1);
-
-      // Progress bar (video/audio only)
-      const isPlayable = lesson.type === "video" || lesson.type === "audio";
-      const progressEl = isPlayable ? `
-        <div class="lesson-progress">
-          <div class="lesson-progress-fill" style="width:${getVideoProgress(lesson.name)}%"></div>
-        </div>` : "";
-
-      // Resource button (non-playable files)
-      const resourceBtn = !isPlayable ? `
-        <button class="resource-btn" onclick="downloadResource(${globalIndex})">Descargar</button>` : "";
-
-      itemEl.innerHTML = `
-        <div class="lesson-num">${numContent}</div>
-        <div class="lesson-info">
-          <div class="lesson-title">${lesson.name}</div>
-          <div class="lesson-dur">${lesson.duration || (lesson.type !== "video" ? lesson.type : "")}</div>
-          ${progressEl}
-          ${resourceBtn}
-        </div>
-        <span class="material-icons-round lesson-type-icon">${getTypeIcon(lesson.type)}</span>
-      `;
-
-      itemEl.addEventListener("click", () => {
-        loadLesson(globalIndex);
-        if (lesson.type !== "video" && lesson.type !== "audio") {
-          completedLessons.add(globalIndex);
-          renderSidebar();
-          updateGlobalProgress();
-        }
-      });
-
-      lessonsEl.appendChild(itemEl);
+    let lessonCounter = 0;
+    node.children.forEach((child) => {
+      if (child.type === "folder") renderFolder(child, childrenEl);
+      else renderLesson(child, ++lessonCounter, childrenEl);
     });
 
     moduleEl.appendChild(headerEl);
-    moduleEl.appendChild(lessonsEl);
-    sidebarContent.appendChild(moduleEl);
+    moduleEl.appendChild(childrenEl);
+    container.appendChild(moduleEl);
+  }
 
-    globalOffset += module.lessons.length;
+  let rootLessonCounter = 0;
+  courseData.root.children.forEach((child) => {
+    if (child.type === "folder") renderFolder(child, sidebarContent);
+    else renderLesson(child, ++rootLessonCounter, sidebarContent);
   });
 
   updateGlobalProgress();
@@ -372,6 +486,7 @@ function updateGlobalProgress() {
   const pct = Math.round((completedLessons.size / total) * 100);
   globalProgressFill.style.width = pct + "%";
   globalProgressPct.textContent  = pct + "%";
+  saveCourseState();
 }
 
 // ══════════════════════════════════════════
@@ -401,12 +516,13 @@ function renderSearch(query) {
 
   if (!q) { renderSidebar(); return; }
 
-  // Construir mapa lessonIndex → moduleName
+  // Construir mapa lessonIndex → ruta de carpetas (breadcrumb), para distinguir
+  // archivos con el mismo nombre en distintas subcarpetas
   const moduleOf = {};
-  let off = 0;
-  courseData.modules.forEach((mod) => {
-    mod.lessons.forEach((_, i) => { moduleOf[off + i] = mod.name; });
-    off += mod.lessons.length;
+  allLessons.forEach((lesson, idx) => {
+    const segs = lesson.path.split("/");
+    segs.pop();
+    moduleOf[idx] = segs.length > 0 ? segs.join(" › ") : courseData.name;
   });
 
   const matches = allLessons
@@ -428,7 +544,7 @@ function renderSearch(query) {
     item.className = `search-result-item${isActive ? " active" : ""}`;
     item.innerHTML = `
       <div class="search-result-icon">
-        <span class="material-icons-round">${getTypeIcon(lesson.type)}</span>
+        <span class="material-icons-round">${getTypeIcon(lesson.type, lesson.name)}</span>
       </div>
       <div class="search-result-info">
         <div class="search-result-name">${highlightMatch(lesson.name, query)}</div>
@@ -480,13 +596,18 @@ const _renderSidebarOrig = renderSidebar;
 // COLLAPSE / EXPAND ALL
 // ══════════════════════════════════════════
 document.getElementById("collapseAll").addEventListener("click", () => {
-  expandedModules.clear();
+  expandedFolders.clear();
   renderSidebar();
 });
 
 document.getElementById("expandAll").addEventListener("click", () => {
-  expandedModules.clear();
-  courseData.modules.forEach((_, i) => expandedModules.add(i));
+  expandedFolders.clear();
+  function collectFolderPaths(node) {
+    node.children.forEach((c) => {
+      if (c.type === "folder") { expandedFolders.add(c.path); collectFolderPaths(c); }
+    });
+  }
+  if (courseData.root) collectFolderPaths(courseData.root);
   renderSidebar();
 });
 
@@ -494,18 +615,13 @@ document.getElementById("expandAll").addEventListener("click", () => {
 // LOCATE CURRENT LESSON
 // ══════════════════════════════════════════
 locateLessonBtn.addEventListener("click", () => {
-  if (currentLessonIndex < 0) return;
+  if (currentLessonIndex < 0 || !allLessons[currentLessonIndex]) return;
 
-  // Find which module the current lesson is in and expand it
-  let offset = 0;
-  for (let i = 0; i < courseData.modules.length; i++) {
-    const mod = courseData.modules[i];
-    if (currentLessonIndex < offset + mod.lessons.length) {
-      expandedModules.add(i);
-      break;
-    }
-    offset += mod.lessons.length;
-  }
+  // Expand every ancestor folder of the current lesson so it becomes visible
+  const segs = allLessons[currentLessonIndex].path.split("/");
+  segs.pop();
+  let acc = "";
+  segs.forEach((s) => { acc = acc ? `${acc}/${s}` : s; expandedFolders.add(acc); });
 
   renderSidebar();
 
@@ -519,24 +635,23 @@ locateLessonBtn.addEventListener("click", () => {
 // ══════════════════════════════════════════
 // VIDEO PROGRESS
 // ══════════════════════════════════════════
-function getVideoProgress(videoName) {
-  return videoProgress[videoName] ? Math.round(videoProgress[videoName].progress) : 0;
+function getVideoProgress(videoPath) {
+  return videoProgress[videoPath] ? Math.round(videoProgress[videoPath].progress) : 0;
 }
 
-function updateVideoProgress(videoName, currentTime, duration) {
-  if (!videoName || !duration) return;
+function updateVideoProgress(videoPath, currentTime, duration) {
+  if (!videoPath || !duration) return;
 
   const progress = (currentTime / duration) * 100;
-  videoProgress[videoName] = { currentTime, duration, progress, lastUpdate: Date.now() };
+  videoProgress[videoPath] = { currentTime, duration, progress, lastUpdate: Date.now() };
 
-  // Update sidebar bar without full re-render
-  sidebarContent.querySelectorAll(".lesson-item").forEach((item) => {
-    const titleEl = item.querySelector(".lesson-title");
-    if (titleEl && titleEl.textContent === videoName) {
-      const bar = item.querySelector(".lesson-progress-fill");
-      if (bar) bar.style.width = Math.round(progress) + "%";
-    }
-  });
+  // Update sidebar bar without full re-render (por ruta única, no por nombre —
+  // dos archivos en subcarpetas distintas pueden llamarse igual)
+  const item = sidebarContent.querySelector(`.lesson-item[data-path="${CSS.escape(videoPath)}"]`);
+  if (item) {
+    const bar = item.querySelector(".lesson-progress-fill");
+    if (bar) bar.style.width = Math.round(progress) + "%";
+  }
 
   // Throttled save
   const now = Date.now();
@@ -565,19 +680,157 @@ function downloadResource(index) {
 // ══════════════════════════════════════════
 function copyCodeToClipboard(button) {
   const container = button.closest(".code-display");
-  const text      = container.dataset.code;
+  const text      = container ? container.dataset.code : "";
+  if (!text) return;
   navigator.clipboard.writeText(text).then(() => {
     const copyText = button.querySelector(".copy-text");
     const icon     = button.querySelector(".material-icons-round");
     button.classList.add("copied");
-    copyText.textContent = "Copiado";
-    icon.textContent     = "check";
+    if (copyText) copyText.textContent = "Copiado";
+    if (icon) icon.textContent = "check";
     setTimeout(() => {
       button.classList.remove("copied");
-      copyText.textContent = "Copiar";
-      icon.textContent     = "content_copy";
+      if (copyText) copyText.textContent = "Copiar";
+      if (icon) icon.textContent = "content_copy";
     }, 2000);
   }).catch(() => {});
+}
+
+// ══════════════════════════════════════════
+// MARKDOWN RENDERER
+// ══════════════════════════════════════════
+function renderMarkdown(md) {
+  if (typeof marked !== "undefined" && marked.parse) {
+    try {
+      return marked.parse(md, { gfm: true, breaks: true });
+    } catch (e) {
+      console.warn("marked.parse error, using fallback parser", e);
+    }
+  }
+  return fallbackMarkdownParser(md);
+}
+
+function fallbackMarkdownParser(md) {
+  if (!md) return "";
+
+  let text = md.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  function escapeHtmlChars(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Code blocks
+  const codeBlocks = [];
+  text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    const placeholder = `%%%FP_CODE_BLOCK_${codeBlocks.length}%%%`;
+    const escapedCode = escapeHtmlChars(code.replace(/\n$/, ""));
+    const langClass = lang ? ` class="language-${escapeHtmlChars(lang)}"` : "";
+    codeBlocks.push(`<pre><code${langClass}>${escapedCode}</code></pre>`);
+    return placeholder;
+  });
+
+  // Inline code
+  const inlineCodes = [];
+  text = text.replace(/`([^`\n]+)`/g, (match, code) => {
+    const placeholder = `%%%FP_INLINE_CODE_${inlineCodes.length}%%%`;
+    inlineCodes.push(`<code>${escapeHtmlChars(code)}</code>`);
+    return placeholder;
+  });
+
+  // Headings
+  text = text.replace(/^(#{1,6})\s+(.+)$/gm, (match, hashes, content) => {
+    const level = hashes.length;
+    return `<h${level}>${content.trim()}</h${level}>`;
+  });
+
+  // Horizontal rules
+  text = text.replace(/^(?:---|\*\*\*|___)\s*$/gm, "<hr>");
+
+  // Blockquotes
+  text = text.replace(/^(?:>\s?.+\n?)+/gm, (match) => {
+    const lines = match.split("\n").map(l => l.replace(/^>\s?/, "")).join("<br>");
+    return `<blockquote>${lines}</blockquote>`;
+  });
+
+  // Tables
+  text = text.replace(/((?:\|.+?\|\r?\n)+)/g, (match) => {
+    const rows = match.trim().split("\n");
+    if (rows.length < 2) return match;
+    let html = '<table>';
+    let isHeader = true;
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i].trim();
+      if (/^\|[\s\-:|]+\|$/.test(row)) {
+        isHeader = false;
+        continue;
+      }
+      const cells = row.split("|").slice(1, -1);
+      if (isHeader) {
+        html += "<thead><tr>" + cells.map(c => `<th>${c.trim()}</th>`).join("") + "</tr></thead><tbody>";
+      } else {
+        html += "<tr>" + cells.map(c => `<td>${c.trim()}</td>`).join("") + "</tr>";
+      }
+    }
+    html += "</tbody></table>";
+    return html;
+  });
+
+  // Task list checkboxes
+  text = text.replace(/^\s*-\s+\[([ xX])\]\s+(.+)$/gm, (match, check, item) => {
+    const checked = check.toLowerCase() === "x" ? 'checked="checked"' : '';
+    return `<li class="task-list-item"><input type="checkbox" ${checked} disabled> ${item}</li>`;
+  });
+
+  // Unordered lists
+  text = text.replace(/(?:^|\n)((?:[ \t]*[-*+]\s+.+\n?)+)/g, (match, list) => {
+    const items = list.trim().split("\n").map(l => {
+      if (l.includes('class="task-list-item"')) return l;
+      return `<li>${l.replace(/^[ \t]*[-*+]\s+/, "")}</li>`;
+    }).join("");
+    return `\n<ul>${items}</ul>\n`;
+  });
+
+  // Ordered lists
+  text = text.replace(/(?:^|\n)((?:[ \t]*\d+\.\s+.+\n?)+)/g, (match, list) => {
+    const items = list.trim().split("\n").map(l => {
+      return `<li>${l.replace(/^[ \t]*\d+\.\s+/, "")}</li>`;
+    }).join("");
+    return `\n<ol>${items}</ol>\n`;
+  });
+
+  // Images & Links
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  // Bold, Italic, Strikethrough
+  text = text.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/__(.+?)__/g, '<strong>$1</strong>');
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  text = text.replace(/_(.+?)_/g, '<em>$1</em>');
+  text = text.replace(/~~(.+?)~~/g, '<del>$1</del>');
+
+  // Paragraphs
+  const paragraphs = text.split(/\n{2,}/);
+  text = paragraphs.map(p => {
+    const trimmed = p.trim();
+    if (!trimmed) return "";
+    if (/^<(h[1-6]|ul|ol|pre|blockquote|table|hr|div)/i.test(trimmed)) {
+      return trimmed;
+    }
+    return `<p>${trimmed.replace(/\n/g, "<br>")}</p>`;
+  }).join("\n");
+
+  // Restore Code blocks & Inline code
+  text = text.replace(/%%%FP_CODE_BLOCK_(\d+)%%%/g, (m, idx) => codeBlocks[parseInt(idx)] || "");
+  text = text.replace(/%%%FP_INLINE_CODE_(\d+)%%%/g, (m, idx) => inlineCodes[parseInt(idx)] || "");
+
+  return text;
 }
 
 // ══════════════════════════════════════════
@@ -785,8 +1038,8 @@ function loadLesson(index) {
       lesson.duration = formatTime(video.duration);
       renderSidebar();
 
-      if (videoProgress[lesson.name]) {
-        const saved = videoProgress[lesson.name].currentTime;
+      if (videoProgress[lesson.path]) {
+        const saved = videoProgress[lesson.path].currentTime;
         if (saved > 0 && saved < video.duration - 5) video.currentTime = saved;
       }
     }, { signal });
@@ -809,7 +1062,7 @@ function loadLesson(index) {
       updateBuffer();
       const now = Date.now();
       if (now - lastProgressUpdate > 500) {
-        updateVideoProgress(lesson.name, video.currentTime, video.duration);
+        updateVideoProgress(lesson.path, video.currentTime, video.duration);
         lastProgressUpdate = now;
       }
     }, { signal });
@@ -872,8 +1125,8 @@ function loadLesson(index) {
       lesson.duration = formatTime(audio.duration);
       renderSidebar();
 
-      if (videoProgress[lesson.name]) {
-        const saved = videoProgress[lesson.name].currentTime;
+      if (videoProgress[lesson.path]) {
+        const saved = videoProgress[lesson.path].currentTime;
         if (saved > 0 && saved < audio.duration - 5) audio.currentTime = saved;
       }
     });
@@ -895,7 +1148,7 @@ function loadLesson(index) {
       updateBuffer();
       const now = Date.now();
       if (now - lastAudioProgressUpdate > 500) {
-        updateVideoProgress(lesson.name, audio.currentTime, audio.duration);
+        updateVideoProgress(lesson.path, audio.currentTime, audio.duration);
         lastAudioProgressUpdate = now;
       }
     });
@@ -954,6 +1207,8 @@ function loadLesson(index) {
       const codeText     = e.target.result;
       const extension    = lesson.name.split(".").pop().toLowerCase();
       const languageName = getLanguageName(extension);
+      const isHtml       = ["html", "htm"].includes(extension);
+      const isMarkdown   = ["md", "markdown"].includes(extension);
 
       const container = document.createElement("div");
       container.className  = "code-display";
@@ -962,18 +1217,107 @@ function loadLesson(index) {
       const header = document.createElement("div");
       header.className = "code-header";
       header.innerHTML = `
-        <div class="code-language">${languageName}</div>
-        <button class="code-copy-btn" onclick="copyCodeToClipboard(this)">
-          <span class="material-icons-round">content_copy</span>
-          <span class="copy-text">Copiar</span>
-        </button>`;
+        <div class="viewer-tabs">
+          <button class="viewer-tab-btn active" data-tab="preview" title="Vista previa">
+            <span class="material-icons-round">visibility</span>
+            <span>Vista previa</span>
+          </button>
+          <button class="viewer-tab-btn" data-tab="code" title="Ver código fuente">
+            <span class="material-icons-round">code</span>
+            <span>Ver código</span>
+          </button>
+        </div>
+        <div class="viewer-header-right">
+          <div class="code-language">${languageName}</div>
+          ${isHtml ? `
+            <button class="viewer-open-btn" id="openHtmlNewTab" title="Abrir en pestaña nueva">
+              <span class="material-icons-round">open_in_new</span>
+              <span>Abrir pestaña</span>
+            </button>
+          ` : ""}
+          <button class="code-copy-btn" onclick="copyCodeToClipboard(this)">
+            <span class="material-icons-round">content_copy</span>
+            <span class="copy-text">Copiar</span>
+          </button>
+        </div>`;
 
+      const paneContainer = document.createElement("div");
+      paneContainer.className = "viewer-pane-container";
+
+      const codePane = document.createElement("div");
+      codePane.className = "viewer-code-pane";
       const codeContent = document.createElement("div");
       codeContent.className   = "code-content";
       codeContent.textContent = codeText;
+      codePane.appendChild(codeContent);
+
+      const previewPane = document.createElement("div");
+      previewPane.className = "viewer-preview-pane";
+
+      if (isHtml) {
+        const iframe = document.createElement("iframe");
+        iframe.className = "html-preview-frame";
+        iframe.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-modals allow-popups");
+        iframe.srcdoc = codeText;
+        previewPane.appendChild(iframe);
+
+        const openBtn = header.querySelector("#openHtmlNewTab");
+        if (openBtn) {
+          openBtn.addEventListener("click", () => {
+            const blob = new Blob([codeText], { type: "text/html" });
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, "_blank");
+          });
+        }
+      } else if (isMarkdown) {
+        const mdContent = document.createElement("div");
+        mdContent.className = "markdown-preview";
+        mdContent.innerHTML = renderMarkdown(codeText);
+        mdContent.querySelectorAll("a").forEach((a) => {
+          a.setAttribute("target", "_blank");
+          a.setAttribute("rel", "noopener noreferrer");
+        });
+        previewPane.appendChild(mdContent);
+      } else {
+        // Resto de tipos de código: la "vista previa" es el código con resaltado de sintaxis
+        const highlightPre = document.createElement("pre");
+        highlightPre.className = "code-highlight-pane";
+        const highlightCode = document.createElement("code");
+        highlightCode.className   = `language-${extension}`;
+        highlightCode.textContent = codeText;
+        highlightPre.appendChild(highlightCode);
+        previewPane.appendChild(highlightPre);
+        if (window.hljs) {
+          try { hljs.highlightElement(highlightCode); } catch (_) {}
+        }
+      }
+
+      // Default state: Preview visible, Code hidden
+      codePane.style.display = "none";
+      previewPane.style.display = "flex";
+
+      paneContainer.appendChild(previewPane);
+      paneContainer.appendChild(codePane);
+
+      // Tab click events
+      const tabBtns = header.querySelectorAll(".viewer-tab-btn");
+      tabBtns.forEach((btn) => {
+        btn.addEventListener("click", () => {
+          tabBtns.forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          const tab = btn.dataset.tab;
+          if (tab === "preview") {
+            previewPane.style.display = "flex";
+            codePane.style.display = "none";
+          } else {
+            previewPane.style.display = "none";
+            codePane.style.display = "block";
+          }
+        });
+      });
 
       container.appendChild(header);
-      container.appendChild(codeContent);
+      container.appendChild(paneContainer);
       contentArea.appendChild(container);
     };
     reader.readAsText(lesson.file);
@@ -1029,8 +1373,8 @@ rewatchBtn.addEventListener("click", () => {
   completedLessons.delete(currentLessonIndex);
 
   // Limpiar progreso guardado del video
-  if (videoProgress[lesson.name]) {
-    delete videoProgress[lesson.name];
+  if (videoProgress[lesson.path]) {
+    delete videoProgress[lesson.path];
     saveProgress();
   }
 
@@ -1209,7 +1553,7 @@ function openPip() {
   pipVideo.addEventListener("timeupdate", () => {
     if (currentMedia && lesson) {
       currentMedia.currentTime = pipVideo.currentTime;
-      updateVideoProgress(lesson.name, pipVideo.currentTime, pipVideo.duration);
+      updateVideoProgress(lesson.path, pipVideo.currentTime, pipVideo.duration);
     }
   });
 
@@ -1505,6 +1849,14 @@ document.querySelectorAll("[data-theme]").forEach((item) => {
   });
 });
 
+function updateHljsTheme() {
+  const isLight = document.body.classList.contains("light-mode");
+  const darkEl  = document.getElementById("hljsThemeDark");
+  const lightEl = document.getElementById("hljsThemeLight");
+  if (darkEl)  darkEl.disabled  = isLight;
+  if (lightEl) lightEl.disabled = !isLight;
+}
+
 function applyTheme(selectedTheme) {
   if (selectedTheme === "system") {
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -1514,10 +1866,14 @@ function applyTheme(selectedTheme) {
   } else {
     document.body.classList.remove("light-mode");
   }
+  updateHljsTheme();
 }
 
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
-  if (theme === "system") document.body.classList.toggle("light-mode", !e.matches);
+  if (theme === "system") {
+    document.body.classList.toggle("light-mode", !e.matches);
+    updateHljsTheme();
+  }
 });
 
 // Load saved theme
