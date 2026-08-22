@@ -15,40 +15,15 @@
 </head>
 
 <body>
-  <!-- ── HEADER ── -->
-  <div class="header">
-    <div class="header-left">
-      <div class="logo">
-        <div class="logo-icon">
-          <svg viewBox="0 0 22 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!-- folder body -->
-            <path d="M1 4.5C1 3.4 1.9 2.5 3 2.5H8.2L10 4.5H19C20.1 4.5 21 5.4 21 6.5V15C21 16.1 20.1 17 19 17H3C1.9 17 1 16.1 1 15V4.5Z"
-                  fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.35)" stroke-width="0.8"/>
-            <!-- play triangle -->
-            <path d="M9 8.5L9 13.5L14.5 11L9 8.5Z" fill="white"/>
-          </svg>
-        </div>
-        <span class="logo-word">Folder</span><span class="logo-word-bold">Player</span>
-      </div>
-      <div class="header-divider"></div>
-      <div class="course-name" id="courseName">Sin curso cargado</div>
-      <span class="header-sep" id="headerSep" style="display:none">›</span>
-      <div class="lesson-name" id="currentLesson"></div>
-    </div>
-    <div class="header-right">
-      <button class="hbtn" id="toggleSidebar">
-        <span class="material-icons-round">menu_book</span>Contenido
-      </button>
-      <button class="hbtn primary" id="loadFolder">
-        <span class="material-icons-round">folder_open</span><span class="btn-text">Cargar Carpeta</span>
-      </button>
-      <button class="hbtn hbtn-icon">
-        <span class="material-icons-round">more_vert</span>
-      </button>
-    </div>
-  </div>
-
   <input type="file" id="folderInput" webkitdirectory directory multiple>
+
+  <!-- El nombre del curso/lección ya vive en el sidebar; estos nodos siguen
+       existiendo (ocultos) solo porque script.js los actualiza en cada carga. -->
+  <div style="display:none">
+    <div class="course-name" id="courseName">Sin curso cargado</div>
+    <span class="header-sep" id="headerSep">›</span>
+    <div class="lesson-name" id="currentLesson"></div>
+  </div>
 
   <!-- ── MAIN ── -->
   <div class="main-container">
@@ -56,6 +31,9 @@
     <!-- ── VIDEO SECTION ── -->
     <div class="video-section">
       <div class="video-area" id="videoArea">
+        <button class="mobile-sidebar-toggle" id="mobileSidebarToggle" title="Contenido">
+          <span class="material-icons-round">menu_book</span>
+        </button>
         <button class="nav-arrow left" id="prevLesson">‹</button>
         <button class="nav-arrow right" id="nextLesson">›</button>
 
@@ -180,11 +158,23 @@
     </div><!-- /.video-section -->
 
     <!-- ── SIDEBAR ── -->
+    <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
     <div class="sidebar" id="sidebar">
       <div class="sb-header">
+        <button class="hbtn primary sb-load-btn" id="loadFolder">
+          <span class="material-icons-round">folder_open</span><span class="btn-text">Cargar Carpeta</span>
+        </button>
+        <div class="sb-course-name" id="sbCourseTitle">Sin curso cargado</div>
+        <div class="sb-course-progress">
+          <div class="global-progress-track">
+            <div class="global-progress-fill" id="globalProgressFill" style="width:0%"></div>
+          </div>
+          <div class="sb-course-progress-label"><span id="globalProgressPct">0%</span> completado</div>
+        </div>
         <div class="sb-search">
           <span class="material-icons-round sb-search-icon">search</span>
-          <input type="text" class="sb-search-input" id="sidebarSearch" placeholder="Buscar archivos…" autocomplete="off">
+          <input type="text" class="sb-search-input" id="sidebarSearch" placeholder="Buscar por título de lección…" autocomplete="off">
           <button class="sb-search-clear" id="sidebarSearchClear" style="display:none">
             <span class="material-icons-round">close</span>
           </button>
@@ -204,15 +194,6 @@
       <div class="sb-scroll" id="sidebarContent">
         <div style="padding:24px 16px;text-align:center;color:var(--text3);font-size:13px">
           No hay contenido cargado
-        </div>
-      </div>
-      <div class="sb-footer">
-        <div class="sb-footer-label">
-          <span>Progreso del curso</span>
-          <span id="globalProgressPct">0%</span>
-        </div>
-        <div class="global-progress-track">
-          <div class="global-progress-fill" id="globalProgressFill" style="width:0%"></div>
         </div>
       </div>
     </div>

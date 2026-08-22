@@ -30,11 +30,13 @@ let courseState         = {}; // { [courseName]: { lastLesson, completed: [names
 // ══════════════════════════════════════════
 const folderInput          = document.getElementById("folderInput");
 const loadFolderBtn        = document.getElementById("loadFolder");
-const toggleSidebarBtn     = document.getElementById("toggleSidebar");
 const sidebar              = document.getElementById("sidebar");
+const mobileSidebarToggle  = document.getElementById("mobileSidebarToggle");
+const sidebarBackdrop      = document.getElementById("sidebarBackdrop");
 const contentArea          = document.getElementById("contentArea");
 const sidebarContent       = document.getElementById("sidebarContent");
 const courseName           = document.getElementById("courseName");
+const sbCourseTitle        = document.getElementById("sbCourseTitle");
 const currentLessonEl      = document.getElementById("currentLesson");
 const headerSep            = document.getElementById("headerSep");
 const playPauseBtn         = document.getElementById("playPauseBtn");
@@ -133,13 +135,134 @@ loadCourseState();
 // ══════════════════════════════════════════
 // FOLDER LOADING
 // ══════════════════════════════════════════
-loadFolderBtn.addEventListener("click", () => folderInput.click());
+const supportsFSAccess = "showDirectoryPicker" in window;
+
+loadFolderBtn.addEventListener("click", () => {
+  if (supportsFSAccess) loadFolderViaFSAccess();
+  else folderInput.click();
+});
 
 folderInput.addEventListener("change", async (e) => {
   const files = Array.from(e.target.files);
   if (files.length === 0) return;
   await processFolder(files);
 });
+
+async function loadFolderViaFSAccess() {
+  let dirHandle;
+  try { dirHandle = await window.showDirectoryPicker(); }
+  catch (e) { return; } // el usuario canceló el selector
+
+  await saveDirHandle(dirHandle);
+  const files = await collectFilesFromHandle(dirHandle);
+  if (files.length > 0) await processFolder(files);
+}
+
+// ══════════════════════════════════════════
+// RETOMAR LA ÚLTIMA CARPETA AL REABRIR (File System Access API)
+// ══════════════════════════════════════════
+const HANDLE_DB_NAME  = "FolderPlayerDB";
+const HANDLE_DB_STORE = "handles";
+const HANDLE_DB_KEY   = "lastFolder";
+
+function openHandleDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(HANDLE_DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(HANDLE_DB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function saveDirHandle(handle) {
+  try {
+    const db = await openHandleDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(HANDLE_DB_STORE, "readwrite");
+      tx.objectStore(HANDLE_DB_STORE).put(handle, HANDLE_DB_KEY);
+      tx.oncomplete = resolve;
+      tx.onerror    = () => reject(tx.error);
+    });
+  } catch (e) {}
+}
+
+async function loadDirHandle() {
+  try {
+    const db = await openHandleDB();
+    return await new Promise((resolve, reject) => {
+      const tx  = db.transaction(HANDLE_DB_STORE, "readonly");
+      const req = tx.objectStore(HANDLE_DB_STORE).get(HANDLE_DB_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror   = () => reject(req.error);
+    });
+  } catch (e) { return null; }
+}
+
+// Recorre el árbol de la carpeta y arma un array de File con webkitRelativePath,
+// para poder reutilizar processFolder() tal cual funciona con <input webkitdirectory>
+async function collectFilesFromHandle(dirHandle) {
+  const files = [];
+  async function walk(handle, relPath) {
+    for await (const [name, entry] of handle.entries()) {
+      const entryPath = relPath ? `${relPath}/${name}` : name;
+      if (entry.kind === "directory") {
+        await walk(entry, entryPath);
+      } else {
+        try {
+          const file = await entry.getFile();
+          Object.defineProperty(file, "webkitRelativePath", { value: entryPath, configurable: true });
+          files.push(file);
+        } catch (e) {}
+      }
+    }
+  }
+  await walk(dirHandle, dirHandle.name);
+  return files;
+}
+
+async function resumeFromHandle(handle, autoplay) {
+  try {
+    const files = await collectFilesFromHandle(handle);
+    if (files.length > 0) await processFolder(files, { autoplay });
+  } catch (e) {}
+}
+
+// Mientras el usuario no interactúa no hay "gesto de usuario", así que el navegador
+// no deja re-pedir permiso solo: se muestra un botón de un clic para confirmarlo.
+// Como ese clic ya es una acción explícita de "seguir viendo", el video arranca
+// reproduciéndose (a diferencia del retomo 100% silencioso, que queda en pausa).
+function showResumeBanner(handle) {
+  contentArea.innerHTML = `
+    <div class="placeholder">
+      <div class="placeholder-icon"><span class="material-icons-round">folder_open</span></div>
+      <h3>Continuar con «${escapeHtml(handle.name)}»</h3>
+      <p>El navegador pide confirmar el acceso a esta carpeta con un clic.</p>
+      <button class="hbtn resume-btn" id="resumeFolderBtn">
+        <span class="material-icons-round">play_circle</span>Continuar donde quedé
+      </button>
+    </div>`;
+  document.getElementById("resumeFolderBtn").addEventListener("click", async () => {
+    let granted;
+    try { granted = await handle.requestPermission({ mode: "read" }); }
+    catch (e) { return; }
+    if (granted === "granted") await resumeFromHandle(handle, true);
+  });
+}
+
+async function tryAutoResumeLastFolder() {
+  if (!supportsFSAccess) return;
+  const handle = await loadDirHandle();
+  if (!handle) return;
+
+  let permission;
+  try { permission = await handle.queryPermission({ mode: "read" }); }
+  catch (e) { return; }
+
+  if (permission === "granted") await resumeFromHandle(handle, false);
+  else showResumeBanner(handle);
+}
+
+tryAutoResumeLastFolder();
 
 // ══════════════════════════════════════════
 // FILE TYPE HELPERS
@@ -227,7 +350,7 @@ function getMediaDuration(file, type) {
   });
 }
 
-async function processFolder(files) {
+async function processFolder(files, opts = {}) {
   const rootPath  = files[0].webkitRelativePath.split("/")[0];
   const validExts = [...VIDEO_EXTS, ...AUDIO_EXTS, "pdf","js","html","htm","css","json","py","java","cpp","sql","c","txt","md","markdown","jpg","jpeg","png","gif","webp","svg"];
   const excluded  = [".DS_Store","Thumbs.db",".gitignore"];
@@ -293,7 +416,8 @@ async function processFolder(files) {
   courseData.root = root;
   allLessons       = flattenLessons(root, []);
 
-  courseName.textContent = courseData.name;
+  courseName.textContent   = courseData.name;
+  sbCourseTitle.textContent = courseData.name;
 
   // Retomar completados, última lección vista y carpetas abiertas de esta misma carpeta (por ruta)
   const savedState = courseState[courseData.name];
@@ -320,7 +444,7 @@ async function processFolder(files) {
   }
 
   renderSidebar();
-  if (allLessons.length > 0) loadLesson(startIndex);
+  if (allLessons.length > 0) loadLesson(startIndex, { autoplay: opts.autoplay !== false });
 }
 
 // ══════════════════════════════════════════
@@ -371,13 +495,13 @@ function renderSidebar() {
     return { total, completed };
   }
 
-  function renderLesson(lesson, displayNumber, container) {
+  function renderLesson(lesson, displayNumber, container, trackFirst, trackLast) {
     const globalIndex    = nodeIndex.get(lesson);
     const isActiveLesson = globalIndex === currentLessonIndex;
     const isDone          = completedLessons.has(globalIndex);
 
     const itemEl = document.createElement("div");
-    itemEl.className     = `lesson-item${isDone ? " completed" : ""}${isActiveLesson ? " active" : ""}`;
+    itemEl.className     = `lesson-item${isDone ? " completed" : ""}${isActiveLesson ? " active" : ""}${trackFirst ? " track-first" : ""}${trackLast ? " track-last" : ""}`;
     itemEl.dataset.path  = lesson.path;
 
     // Number badge (checkmark if done, active accent if current)
@@ -397,7 +521,7 @@ function renderSidebar() {
       <button class="resource-btn" onclick="downloadResource(${globalIndex})">Descargar</button>` : "";
 
     itemEl.innerHTML = `
-      <div class="lesson-num">${numContent}</div>
+      <div class="lesson-track"><div class="lesson-num">${numContent}</div></div>
       <div class="lesson-info">
         <div class="lesson-title">${escapeHtml(lesson.name)}</div>
         <div class="lesson-dur">${lesson.duration || (lesson.type !== "video" ? lesson.type : "")}</div>
@@ -414,6 +538,7 @@ function renderSidebar() {
         renderSidebar();
         updateGlobalProgress();
       }
+      closeMobileSidebar();
     });
 
     container.appendChild(itemEl);
@@ -458,9 +583,13 @@ function renderSidebar() {
     childrenEl.className = `lessons${isExpanded ? " open" : ""}`;
 
     let lessonCounter = 0;
-    node.children.forEach((child) => {
+    node.children.forEach((child, i) => {
       if (child.type === "folder") renderFolder(child, childrenEl);
-      else renderLesson(child, ++lessonCounter, childrenEl);
+      else {
+        const trackFirst = i === 0 || node.children[i - 1].type === "folder";
+        const trackLast  = i === node.children.length - 1 || node.children[i + 1].type === "folder";
+        renderLesson(child, ++lessonCounter, childrenEl, trackFirst, trackLast);
+      }
     });
 
     moduleEl.appendChild(headerEl);
@@ -469,9 +598,14 @@ function renderSidebar() {
   }
 
   let rootLessonCounter = 0;
-  courseData.root.children.forEach((child) => {
+  const rootChildren = courseData.root.children;
+  rootChildren.forEach((child, i) => {
     if (child.type === "folder") renderFolder(child, sidebarContent);
-    else renderLesson(child, ++rootLessonCounter, sidebarContent);
+    else {
+      const trackFirst = i === 0 || rootChildren[i - 1].type === "folder";
+      const trackLast  = i === rootChildren.length - 1 || rootChildren[i + 1].type === "folder";
+      renderLesson(child, ++rootLessonCounter, sidebarContent, trackFirst, trackLast);
+    }
   });
 
   updateGlobalProgress();
@@ -488,6 +622,26 @@ function updateGlobalProgress() {
   globalProgressPct.textContent  = pct + "%";
   saveCourseState();
 }
+
+// ══════════════════════════════════════════
+// SIDEBAR MÓVIL (drawer superpuesto sobre el video en pantallas chicas)
+// ══════════════════════════════════════════
+function openMobileSidebar() {
+  sidebar.classList.add("mobile-open");
+  sidebarBackdrop.classList.add("visible");
+}
+
+function closeMobileSidebar() {
+  sidebar.classList.remove("mobile-open");
+  sidebarBackdrop.classList.remove("visible");
+}
+
+mobileSidebarToggle.addEventListener("click", () => {
+  if (sidebar.classList.contains("mobile-open")) closeMobileSidebar();
+  else openMobileSidebar();
+});
+
+sidebarBackdrop.addEventListener("click", closeMobileSidebar);
 
 // ══════════════════════════════════════════
 // SIDEBAR SEARCH
@@ -562,6 +716,7 @@ function renderSearch(query) {
         el.classList.remove("active")
       );
       item.classList.add("active");
+      closeMobileSidebar();
     });
 
     sidebarContent.appendChild(item);
@@ -967,8 +1122,9 @@ function setupMediaSession(media, title) {
   );
 }
 
-function loadLesson(index) {
+function loadLesson(index, opts = {}) {
   if (index < 0 || index >= allLessons.length) return;
+  const autoplay = opts.autoplay !== false;
 
   // Si el video activo está en Picture-in-Picture nativo y la nueva lección
   // también es un video, hay que REUTILIZAR el mismo <video> (solo cambiarle
@@ -986,6 +1142,7 @@ function loadLesson(index) {
 
   // Update header
   currentLessonEl.textContent = lesson.name;
+  currentLessonEl.title       = lesson.name; // tooltip con el nombre completo si el encabezado lo recorta
   if (headerSep) headerSep.style.display = "inline";
 
   let reusedPipVideo = null;
@@ -1102,7 +1259,8 @@ function loadLesson(index) {
 
     setupMediaSession(video, lesson.name);
 
-    video.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
+    if (autoplay) video.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
+    else updatePlayButton(); // se retoma pausado, esperando a que el usuario le dé play
 
   } else if (lesson.type === "audio") {
     const audio = document.createElement("audio");
@@ -1192,7 +1350,8 @@ function loadLesson(index) {
 
     setupMediaSession(audio, lesson.name);
 
-    audio.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
+    if (autoplay) audio.play().then(() => { isPlaying = true; updatePlayButton(); }).catch(() => {});
+    else updatePlayButton(); // se retoma pausado, esperando a que el usuario le dé play
 
   } else if (lesson.type === "image") {
     reader.onload = (e) => {
@@ -1791,14 +1950,6 @@ function updateNavigationButtons() {
   prevLessonBtn.disabled = currentLessonIndex <= 0;
   nextLessonBtn.disabled = currentLessonIndex >= allLessons.length - 1;
 }
-
-// ══════════════════════════════════════════
-// SIDEBAR TOGGLE
-// ══════════════════════════════════════════
-toggleSidebarBtn.addEventListener("click", () => {
-  sidebar.classList.toggle("closed");
-  toggleSidebarBtn.classList.toggle("sidebar-toggle-active", !sidebar.classList.contains("closed"));
-});
 
 // ══════════════════════════════════════════
 // SETTINGS POPUP

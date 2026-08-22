@@ -16,7 +16,6 @@
   --accent-glow:  rgba(124,58,237,0.3);
   --accent-dim:   rgba(124,58,237,0.15);
   --green:        #4ade80;
-  --header-h:     56px;
   --sidebar-w:    340px;
   --radius:       10px;
   --radius-sm:    6px;
@@ -50,93 +49,13 @@ html, body {
 
 input[type="file"] { display: none; }
 
-/* ══════════════════════════════════════════
-   HEADER
-   ══════════════════════════════════════════ */
-.header {
-  height: var(--header-h);
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px 0 12px;
-  flex-shrink: 0;
-  gap: 12px;
-  z-index: 100;
-  position: relative;
-}
-
-.header-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
-
-.logo {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  flex-shrink: 0;
-  white-space: nowrap;
-  text-decoration: none;
-}
-
-.logo-icon {
-  width: 32px; height: 32px;
-  border-radius: 9px;
-  background: linear-gradient(145deg, #4ade80 0%, #22c55e 100%);
-  box-shadow: 0 2px 10px rgba(74,222,128,0.4), 0 0 0 1px rgba(255,255,255,0.12) inset;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.logo-icon svg { width: 18px; height: 18px; }
-
-.logo-word {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.3px;
-  color: var(--green);
-}
-
-.logo-word-bold {
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  color: var(--text);
-}
-
-.header-divider {
-  width: 1px;
-  height: 20px;
-  background: var(--border2);
-  flex-shrink: 0;
-}
-
-.course-name {
-  font-size: 13px;
-  color: var(--text2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 280px;
-}
-
-.header-sep {
-  color: var(--text3);
-  font-size: 12px;
-  flex-shrink: 0;
-}
-
+/* El nombre del curso y de la lección activa ya se muestran, completos y sin
+   recorte, en el encabezado del sidebar y resaltados en el árbol. */
+.course-name,
+.header-sep,
 .lesson-name {
-  font-size: 13px;
-  color: var(--text3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 240px;
+  display: none;
 }
-
-.header-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 
 .hbtn {
   height: 32px;
@@ -166,22 +85,34 @@ input[type="file"] { display: none; }
 
 .hbtn.primary:hover { background: rgba(124,58,237,0.25); }
 
+.hbtn.resume-btn {
+  height: 44px;
+  padding: 0 22px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--green);
+  background: rgba(74,222,128,0.12);
+  border-color: rgba(74,222,128,0.4);
+}
+
+.hbtn.resume-btn .material-icons-round { font-size: 20px; }
+
+.hbtn.resume-btn:hover {
+  background: rgba(74,222,128,0.22);
+  color: var(--green);
+  border-color: var(--green);
+}
+
 .hbtn .material-icons-round { font-size: 16px; }
 
 .hbtn-icon { width: 32px; padding: 0; justify-content: center; }
-
-.sidebar-toggle-active {
-  background: var(--accent-dim) !important;
-  color: var(--accent-light) !important;
-  border-color: rgba(124,58,237,0.35) !important;
-}
 
 /* ══════════════════════════════════════════
    LAYOUT
    ══════════════════════════════════════════ */
 .main-container {
   display: flex;
-  height: calc(100vh - var(--header-h));
+  height: 100vh;
   overflow: hidden;
 }
 
@@ -225,19 +156,18 @@ input[type="file"] { display: none; }
   background: #000;
 }
 
-.video-content video,
+.video-content video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .video-content img {
   width: 100%;
   height: 100%;
   object-fit: contain;
 }
 
-.video-content iframe {
-  width: 92%;
-  height: 92%;
-  border: none;
-  border-radius: 4px;
-}
 
 /* Placeholder */
 .placeholder {
@@ -356,8 +286,7 @@ input[type="file"] { display: none; }
   transform: translateY(-50%);
   width: 40px; height: 40px;
   border-radius: 50%;
-  background: rgba(13,13,16,0.7);
-  backdrop-filter: blur(8px);
+  background: rgba(20,20,24,0.9);
   border: 1px solid var(--border2);
   color: var(--text2);
   cursor: pointer;
@@ -444,7 +373,6 @@ input[type="file"] { display: none; }
   width: 12px; height: 12px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 6px var(--accent-glow);
   opacity: 0;
   transition: opacity 0.15s, transform 0.15s cubic-bezier(0.34,1.56,0.64,1);
 }
@@ -817,7 +745,7 @@ input[type="file"] { display: none; }
 .video-section:fullscreen .video-content video {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
 }
 
 .video-section:fullscreen .controls-bar {
@@ -845,16 +773,110 @@ input[type="file"] { display: none; }
   transition: width 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.25s;
 }
 
-.sidebar.closed { width: 0; opacity: 0; pointer-events: none; }
+/* Botón para abrir el sidebar en móvil — solo existe visualmente en esa vista */
+.mobile-sidebar-toggle {
+  display: none;
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 40;
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  background: rgba(20,20,24,0.9);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.mobile-sidebar-toggle .material-icons-round { font-size: 20px; }
+
+.sidebar-backdrop { display: none; }
+
+/* ══════════════════════════════════════════
+   RESPONSIVE — MÓVIL
+   ══════════════════════════════════════════ */
+@media (max-width: 860px) {
+  .mobile-sidebar-toggle { display: flex; }
+
+  /* En pantallas angostas (retrato) el contenedor del video ya no se parece
+     en nada a 16:9: "cover" recorta demasiado (se pierde medio video, como
+     en la captura). Acá se prioriza ver el video completo sobre llenar
+     el espacio, aunque queden franjas a los costados. */
+  .video-content video { object-fit: contain; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    height: 100vh;
+    width: 86vw;
+    max-width: 360px;
+    z-index: 210;
+    border-left: 1px solid var(--border2);
+    box-shadow: -12px 0 32px rgba(0,0,0,0.5);
+    transform: translateX(100%);
+    transition: transform 0.28s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  .sidebar.mobile-open { transform: translateX(0); }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s;
+  }
+
+  .sidebar-backdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
 
 .sb-header {
-  padding: 10px 12px 8px;
+  padding: 16px 16px 10px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
+
+/* Botón para cargar carpeta — vive en el propio panel de contenido */
+.sb-load-btn {
+  width: 100%;
+  justify-content: center;
+  height: 36px;
+  font-size: 13px;
+}
+
+/* Título del curso — grande y siempre completo (nunca se recorta) */
+.sb-course-name {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.sb-course-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sb-course-progress-label {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.sb-course-progress-label span { color: var(--accent-light); font-weight: 600; }
 
 /* Search bar */
 .sb-search {
@@ -918,13 +940,15 @@ input[type="file"] { display: none; }
 
 .search-result-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 9px 16px;
   cursor: pointer;
   transition: background 0.12s;
   position: relative;
 }
+
+.search-result-item .search-result-icon { margin-top: 1px; }
 
 .search-result-item:hover { background: var(--bg3); }
 
@@ -959,9 +983,9 @@ input[type="file"] { display: none; }
 .search-result-name {
   font-size: 13px;
   color: var(--text2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.35;
 }
 
 .search-result-item.active .search-result-name { color: var(--green); font-weight: 500; }
@@ -1063,13 +1087,14 @@ input[type="file"] { display: none; }
 .ring-bg   { stroke: var(--bg4); }
 .ring-fill { stroke: var(--green); stroke-linecap: round; transition: stroke-dashoffset 0.4s; }
 
-/* Lessons list — también contenedor de subcarpetas anidadas (árbol de profundidad arbitraria) */
+/* Lessons list — también contenedor de subcarpetas anidadas (árbol de profundidad arbitraria).
+   Indentación mínima: una lección vive visualmente al nivel de su carpeta contenedora,
+   solo un poco más adentro para marcar que es su contenido. */
 .lessons {
   overflow: hidden;
   max-height: 0;
-  margin-left: 20px;
-  padding-left: 11px;
-  border-left: 1px solid var(--border);
+  margin-left: 8px;
+  padding-left: 6px;
   transition: max-height 0.25s cubic-bezier(0.4,0,0.2,1);
 }
 
@@ -1077,9 +1102,9 @@ input[type="file"] { display: none; }
 
 .lesson-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  padding: 9px 16px 9px 16px;
+  padding: 9px 16px 9px 0;
   cursor: pointer;
   transition: background 0.12s;
   position: relative;
@@ -1089,22 +1114,59 @@ input[type="file"] { display: none; }
 
 .lesson-item.active { background: rgba(74,222,128,0.08); }
 
-.lesson-item.active::before {
+/* Riel vertical que conecta los círculos de lecciones consecutivas dentro de
+   un mismo módulo. Una sola línea de un color, a todo lo alto del ítem (sin
+   margen propio), para que empalme sin cortes con la del ítem siguiente. */
+.lesson-track {
+  position: relative;
+  flex-shrink: 0;
+  width: 22px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* el riel se estira solo hasta el área de contenido del ítem; estos márgenes
+     negativos lo extienden también sobre el padding vertical del ítem, para
+     que la línea llegue pegada al borde real y no deje espacio entre bullets */
+  margin-top: -9px;
+  margin-bottom: -9px;
+}
+
+.lesson-track::before {
   content: '';
   position: absolute;
-  left: 0; top: 4px; bottom: 4px;
-  width: 3px;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1.5px;
+  transform: translateX(-50%);
   background: var(--green);
-  border-radius: 0 3px 3px 0;
+}
+
+/* Una lección sin otra lección justo antes/después (puede haber una carpeta
+   de por medio, no solo el borde de la lista) no tiene con qué conectarse de
+   ese lado: el riel se recorta justo en su propio círculo. Calculado en JS
+   porque :first-child/:last-child cuentan TODOS los hermanos del DOM
+   (incluidas las carpetas), no solo las lecciones. Si un ítem es el único de
+   su racha (track-first y track-last a la vez), ambos recortes se combinan y
+   no queda línea. */
+.lesson-item.track-last .lesson-track::before {
+  bottom: 50%;
+}
+
+.lesson-item.track-first .lesson-track::before {
+  top: 50%;
 }
 
 /* Lesson number badge */
 .lesson-num {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   width: 22px; height: 22px;
   border-radius: 50%;
-  background: var(--bg4);
-  border: 1px solid var(--border2);
+  background: var(--bg2);
+  border: 1.5px solid var(--border2);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1118,19 +1180,19 @@ input[type="file"] { display: none; }
 .lesson-item.completed .lesson-num {
   background: var(--green);
   border-color: var(--green);
-  color: #000;
+  color: #06210f;
 }
 
 .lesson-item.active .lesson-num {
-  background: var(--green);
+  background: var(--bg2);
   border-color: var(--green);
-  color: #000;
+  color: var(--green);
 }
 
 .lesson-item.active.completed .lesson-num {
   background: var(--green);
   border-color: var(--green);
-  color: #000;
+  color: #06210f;
 }
 
 .lesson-num .material-icons-round { font-size: 12px; }
@@ -1140,9 +1202,9 @@ input[type="file"] { display: none; }
 .lesson-title {
   font-size: 13px;
   color: var(--text2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.35;
 }
 
 .lesson-item.active .lesson-title { color: var(--green); font-weight: 500; }
@@ -1198,23 +1260,6 @@ input[type="file"] { display: none; }
   background: var(--accent-dim);
   border-color: var(--accent-light);
 }
-
-/* Sidebar footer — global progress */
-.sb-footer {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
-}
-
-.sb-footer-label {
-  font-size: 11px;
-  color: var(--text3);
-  margin-bottom: 7px;
-  display: flex;
-  justify-content: space-between;
-}
-
-.sb-footer-label span:last-child { color: var(--accent-light); font-weight: 500; }
 
 .global-progress-track {
   height: 4px;
@@ -1322,23 +1367,18 @@ input[type="file"] { display: none; }
    CODE & DUAL VIEWER DISPLAY
    ══════════════════════════════════════════ */
 .code-display {
-  width: 94%;
-  height: 92%;
+  width: 100%;
+  height: 100%;
   background: var(--bg2);
-  border: 1px solid var(--border2);
-  border-radius: 12px;
   overflow: hidden;
   position: relative;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
-  transition: background 0.25s, border-color 0.25s;
+  transition: background 0.25s;
 }
 
 body.light-mode .code-display {
   background: #ffffff;
-  border-color: rgba(0, 0, 0, 0.12);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
 }
 
 .code-header {
@@ -1397,14 +1437,12 @@ body.light-mode .viewer-tab-btn:hover {
   color: var(--accent-light);
   border-color: rgba(124, 58, 237, 0.4);
   font-weight: 600;
-  box-shadow: 0 0 12px var(--accent-glow);
 }
 
 body.light-mode .viewer-tab-btn.active {
   background: rgba(124, 58, 237, 0.12);
   color: #7c3aed;
   border-color: rgba(124, 58, 237, 0.35);
-  box-shadow: none;
 }
 
 .viewer-tab-btn .material-icons-round {
